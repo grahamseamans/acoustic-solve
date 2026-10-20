@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from acoustic_solve.boundary_lab_result import BoundaryLabResult
 from acoustic_solve.room.spec import DENSITY_KG_PER_M3, FREE_FIELD_SPECS_FILE, POINTS_FILE, SOUND_SPEED_M_PER_S
@@ -75,24 +76,40 @@ class RoomSolve:
         return self.pressure[:, self.port_ids.index(port_id)]
 
 
-def load_room_solve(stage):
-    """<stage>/raw (complete) at the seat points of <stage>/seat_points.json: each one must be a mesh node."""
+def room_result(stage):
+    """(<stage>/raw complete, its FEM nodes (node, 3)): a room solve has one fem_volume domain."""
     stage = Path(stage)
     result = BoundaryLabResult(stage / "raw")
     fem = result.domains_of_kind("fem_volume")
     if len(fem) != 1:
         raise RuntimeError(f"(╯°□°)╯ {stage}/raw has {len(fem)} fem_volume domains, not one: not a room solve")
-    nodes = result.domain_coordinate(fem[0], "points_m")
-    points = json.loads((stage / POINTS_FILE).read_text())["seat_points_m"]
+    return result, result.domain_coordinate(fem[0], "points_m")
+
+
+def node_indices(nodes, points, what):
+    """The FEM node at each point ((point, 3)): each one must BE a node (embedded, or a mesh node itself)."""
+    points = np.asarray(points, dtype=float).reshape(-1, 3)
+    distance, index = cKDTree(nodes).query(points)
+    far = np.flatnonzero(distance > NODE_ON_POINT_M)
+    if far.size:
+        raise RuntimeError(f"(╯°□°)╯ {len(far)} {what}s are off every node (the first, {points[far[0]].tolist()}, by "
+                           f"{distance[far[0]]:.3g} m): not embedded")
+    return [int(i) for i in index]
+
+
+def nodal_pressure(result, indices):
+    """(frequency, port, node) of the retained fem_nodal_pressure at those nodes, complex128 (mixes are computed in
+    complex128)."""
+    return result.quantity_of_kind("fem_nodal_pressure", axes=["excitation", "fem_node"],
+                                   last_axis_indices=indices).astype(complex)
+
+
+def load_room_solve(stage):
+    """<stage>/raw (complete) at the seat points of <stage>/seat_points.json: each one must be a mesh node."""
+    result, nodes = room_result(stage)
+    points = json.loads((Path(stage) / POINTS_FILE).read_text())["seat_points_m"]
     names = list(points)
-    index = []
-    for name in names:
-        distance = np.linalg.norm(nodes - np.array(points[name]), axis=1)
-        if distance.min() > NODE_ON_POINT_M:
-            raise RuntimeError(f"(╯°□°)╯ seat point {name} is {distance.min():.3g} m from the nearest node: not embedded")
-        index.append(int(distance.argmin()))
-    at_seats = result.quantity_of_kind("fem_nodal_pressure", axes=["excitation", "fem_node"],
-                                       last_axis_indices=index).astype(complex)   # mixes are computed in complex128
+    at_seats = nodal_pressure(result, node_indices(nodes, [points[n] for n in names], "seat point"))
     return RoomSolve(result.frequencies_hz, result.excitation_port_ids, names, np.array([points[n] for n in names]),
                      at_seats, result.diagnostics())
 

@@ -15,7 +15,7 @@ project" and "the numbers it solved to" is here, once.
      |                   (podd.job_contract, imported from ~/podd)
   (3) THE RESULT         boundary_lab_result.py + weighted_sums.py        raw/ -> numbers, and sums of ports
      |
-  (4) STUDIES' TOOLS     room/ (spec, build, analysis)                    a kind of model and its measures
+  (4) STUDIES' TOOLS     room/ (spec, build, analysis, traps)             a kind of model and its measures
      |
   (0) LEAVES             canonical_digest.py                              standard library, depends on nothing
 ```
@@ -70,8 +70,13 @@ it imports `pins` (monitoring's run id hashes `pins.ENGINE` and `pins.SOLVER_VER
 - `room/` is the room solver: `spec` (the room.json grammar's gmsh-free half: air, seat points and their names, the
   box frame), `build` (gmsh + the Boundary Lab project, interior FEM and the box's free field; its JOB via solve_job),
   `analysis` (read a room solve, join chunks, the free field, the modal-sum validation, smoothing, peaks, decay, the
-  room-gain band metrics). A study's own mix of ports (cardioid patterns, a crossover, a control law) and its tables
-  stay in the study's repo; they import these.
+  room-gain band metrics), `traps` (a room whose trap faces are velocity ports: every port's exact face-averaged
+  pressure, the trap mics, the closure of a law over them, the watts each port moves). A study's own mix of ports
+  (cardioid patterns, a crossover) and its own control laws and tables stay in the study's repo; they import these.
+- Every name a room stage's files share between the builder and the readers (seat and trap point names, trap groups,
+  sensed quantities, the stage's file names) is spelled once, in `spec`. Anything that is a port -- a source patch or
+  a velocity_port trap face -- is built by one function (`build.velocity_port_parts`) and read by one rule (the port
+  id is "excitation:" + its physical group).
 - A new kind of model (a loop sim's plant, a duct) is a new folder here only when two projects need it.
 
 ## (0) LEAVES
@@ -83,3 +88,7 @@ it imports `pins` (monitoring's run id hashes `pins.ENGINE` and `pins.SOLVER_VER
 
 One test file per module, plain scripts (`python3` for the standard-library ones, `blabrun` for the rest), each
 proving its refusals as well as its answers. No test solves, opens a pod or needs the network.
+
+`tests/pod_gates/` holds the checks that need a real solve: each one STAGES its solves for podd (`stage <queue dir>`)
+and CHECKS them once they are home (`check <queue dir>`), its thresholds written before the solve. The test loop
+(`tests/test_*.py`) never runs them.

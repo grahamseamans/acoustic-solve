@@ -34,10 +34,21 @@ the patch centre: (y, z) on front / rear, (x, z) on left / right. Everything of 
 SEATS (`seats_m`: {seat: [x, y, z]}): each a grid at ear height (a square of (2n+1)^2 points, `seat_grid`) and the
 centre 0.2 m lower and higher, named "<seat>/x+0y+0", "<seat>/z-0.2", ...; every point an embedded mesh node.
 
-TRAPS (optional, `traps`): an active bass trap in a room corner (the active bass trap project), modelled as an
-IDEAL BROADBAND ABSORBER: a triangular prism standing on the floor in the corner (cut out of the air), its 45-degree
-face `width_m` wide and `height_m` tall a plane-wave (rho c) termination like the wall patches, its top rigid. A real
-active trap works over a band (AVAA ~30-150 Hz); this one absorbs at every frequency: a known simplification.
+TRAPS (optional, `traps`): an active bass trap in a room corner (the active bass trap project): a triangular prism
+standing on the floor in the corner (cut out of the air), its 45-degree face `width_m` wide and `height_m` tall, its
+top rigid, its face the physical group "trap:<name>" (acoustic_solve.room.spec.trap_group), of one of two kinds
+(required, no default; PLANS/2026-10-20-trap-velocity-port.md):
+  - "velocity_port": the face is a PORT like the source's (a moving boundary, an ideal-velocity component, the
+    excitation port `excitation:trap:<name>`, 1 m/s uniform normal velocity along the FEM domain's outward normal,
+    i.e. INTO the trap). The trap's driver is a rigid piston, so ANY trap behaviour is a law closing the ports in
+    post-processing (acoustic_solve.room.traps): one solve serves every law.
+  - "rho_c": the face is a plane-wave (rho c) termination like the wall patches, an ideal broadband absorber at
+    every frequency; it stays only as the velocity port's equivalence reference.
+Its MIC POINTS (optional `mic_points_m`: {mic: [normal, along, up]}) are in its FACE FRAME (spec.trap_face_frame):
+origin the face centre, normal into the room, along = z x normal (to the right of someone in the room facing the
+trap), up = z; each one an embedded mesh node like the seat points, named "<trap>/<mic>", written apart from them
+(seat_points.json's "trap_points_m"). A point (seat or mic) not in the room's air is refused. The mesh is h_near_m at
+the trap faces as at the source box (growing to h_far_m from 0.05 to 0.6 m away).
 
 THE FREE FIELD: the room's effect on a source mix is its seat pressure over the SAME box's anechoic pressure at the
 same points, so one exterior BEM of the box alone (every port, rigid elsewhere) is solved with the seat points of
@@ -48,7 +59,8 @@ yawed translation is all a placement is, so one solve serves every spec of the s
 <room.json>: {"name", "dimensions_m": [Lx, Ly, Lz], "source": {"size_m", "centre_m", "aim_m", "ports",
 optional "free_field_points_m"}, "seats_m", "seat_grid": {"step_m", "half_count"}, "h_far_m", "h_near_m",
 "absorption": {"bulk_loss_factor": eta, "rho_c_patch_fraction": f (0: rigid walls)}, "frequencies_hz": [...],
-optional "traps": [{"corner": [i, j] (0: the x = 0 / y = 0 wall, 1: the far one), "width_m", "height_m"}]}
+optional "traps": [{"name", "face": "velocity_port" | "rho_c", "corner": [i, j] (0: the x = 0 / y = 0 wall, 1: the
+far one), "width_m", "height_m", optional "mic_points_m": {mic: [normal, along, up]}}]}
 """
 import json
 import math
@@ -58,10 +70,11 @@ from pathlib import Path
 import gmsh
 
 from acoustic_solve import solve_job
-from acoustic_solve.room.spec import (DENSITY_KG_PER_M3, FREE_FIELD_BOX_PROBE, FREE_FIELD_SPECS_FILE, POINTS_FILE,
-                                      SOUND_SPEED_M_PER_S, in_box_frame, seat_points, the_box, yaw_of)
+from acoustic_solve.room.spec import (DENSITY_KG_PER_M3, FREE_FIELD_BOX_PROBE, FREE_FIELD_SPECS_FILE, MESH_FILE,
+                                      POINTS_FILE, SOUND_SPEED_M_PER_S, SPEC_FILE, checked_traps, embedded_points,
+                                      in_box_frame, seat_points, the_box, trap_face_frame, trap_group, trap_points,
+                                      yaw_of)
 
-MESH_FILE = "room.msh"
 PROJECT_FILE = "room.blab.json"
 FREE_FIELD_MESH_FILE = "box.msh"
 FREE_FIELD_PROJECT_FILE = "freefield.blab.json"
@@ -158,8 +171,8 @@ def mesh(spec, path):
         moved = [(3, box)] + [(2, surface) for _, surface in patches]
         occ.rotate(moved, 0, 0, 0, 0, 0, 1, yaw)
         occ.translate(moved, *source["centre_m"])
-        traps = [trap_prism(occ, trap, lx, ly) for trap in spec.get("traps", [])]
-        air, _ = occ.cut([(3, room)], [(3, box)] + [(3, prism) for prism, _, _ in traps])
+        traps = [(trap, *trap_prism(occ, trap, spec["dimensions_m"])) for trap in checked_traps(spec)]
+        air, _ = occ.cut([(3, room)], [(3, box)] + [(3, prism) for _, prism, _, _ in traps])
         fraction = spec["absorption"]["rho_c_patch_fraction"]
         surfaces_in = [(2, surface) for _, surface in patches]
         if fraction > 0:
@@ -171,13 +184,14 @@ def mesh(spec, path):
             raise RuntimeError(f"the room's air is {len(volumes)} volumes, not one")
         volume = volumes[0]
         port_names = [port["name"] for port in source["ports"]]
-        groups = {name: [] for name in port_names + ["box", "walls", "patches", "traps"]}
+        trap_groups = [trap_group(trap) for trap, _, _, _ in traps]
+        groups = {name: [] for name in port_names + ["box", "walls", "patches"] + trap_groups}
         for _, surface in gmsh.model.getBoundary([(3, volume)], oriented=False):
             sx, sy, sz = occ.getCenterOfMass(2, surface)
-            trap_face = next((kind for _, face_centre, top_centre in traps for kind, centre in
-                              (("traps", face_centre), ("walls", top_centre))
+            trap_face = next((group for trap, _, face_centre, top_centre in traps for group, centre in
+                              ((trap_group(trap), face_centre), ("walls", top_centre))
                               if math.dist((sx, sy, sz), centre) < 1e-6), None)
-            if trap_face:                                # the absorbing face, or the rigid top
+            if trap_face:                                # the trap's face, or its rigid top
                 groups[trap_face].append(surface)
                 continue
             on_wall = min(abs(sx), abs(sx - lx), abs(sy), abs(sy - ly), abs(sz), abs(sz - lz)) < ON_SURFACE_M
@@ -193,12 +207,10 @@ def mesh(spec, path):
             groups[classify_source_surface(source, at, occ.getMass(2, surface))].append(surface)
         if fraction > 0 and not groups["patches"]:
             raise RuntimeError("patches were asked for and none was found on the walls")
-        if len(groups["traps"]) != len(traps):
-            raise RuntimeError(f"(╯°□°)╯ {len(traps)} traps asked for, {len(groups['traps'])} absorbing faces found")
-        for name in port_names:
+        for name in port_names + trap_groups:
             if len(groups[name]) != 1:
-                raise RuntimeError(f"(╯°□°)╯ port {name} is {len(groups[name])} surfaces, not one")
-        points = seat_points(spec)
+                raise RuntimeError(f"(╯°□°)╯ {name} is {len(groups[name])} surfaces, not one")
+        points = embedded_points(spec)
         point_tags = [occ.addPoint(*p) for p in points.values()]
         occ.synchronize()
         gmsh.model.mesh.embed(0, point_tags, 3, volume)
@@ -206,9 +218,9 @@ def mesh(spec, path):
             if surfaces:
                 gmsh.model.addPhysicalGroup(2, surfaces, name=name)
         gmsh.model.addPhysicalGroup(3, [volume], name="air")
-        source_surfaces = [s for name in port_names + ["box"] for s in groups[name]]
+        refined_surfaces = [s for name in port_names + ["box"] + trap_groups for s in groups[name]]   # h_near_m
         distance = gmsh.model.mesh.field.add("Distance")
-        gmsh.model.mesh.field.setNumbers(distance, "SurfacesList", source_surfaces)
+        gmsh.model.mesh.field.setNumbers(distance, "SurfacesList", refined_surfaces)
         threshold = gmsh.model.mesh.field.add("Threshold")
         gmsh.model.mesh.field.setNumber(threshold, "InField", distance)
         gmsh.model.mesh.field.setNumber(threshold, "SizeMin", spec["h_near_m"])
@@ -227,27 +239,24 @@ def mesh(spec, path):
         gmsh.write(str(path))
         area = {name: sum(occ.getMass(2, s) for s in surfaces) for name, surfaces in groups.items()}
         return {"nodes": len(node_tags), "tetrahedra": tetrahedra, "element_types": [int(t) for t in element_types],
-                "area_m2": area, "yaw_deg": math.degrees(yaw), "seat_points_m": points}
+                "area_m2": area, "yaw_deg": math.degrees(yaw), "seat_points_m": seat_points(spec),
+                "trap_points_m": trap_points(spec)}
     finally:
         gmsh.finalize()
 
 
-def trap_prism(occ, trap, lx, ly):
-    """A floor-standing triangular prism in a corner: legs along the two walls, its 45-degree face `width_m` wide,
-    `height_m` tall -> (volume tag, the absorbing face's centre, the top's centre)."""
-    i, j = trap["corner"]
-    leg = trap["width_m"] / math.sqrt(2)
-    cx, cy = (0.0, lx)[i], (0.0, ly)[j]
-    sx, sy = (1.0, -1.0)[i], (1.0, -1.0)[j]                       # into the room
+def trap_prism(occ, trap, dimensions_m):
+    """The trap's prism (spec.trap_face_frame) -> (volume tag, its face's centre, its top's centre)."""
+    frame = trap_face_frame(trap, dimensions_m)
+    (cx, cy), (sx, sy), leg = frame["corner_xy"], frame["into_room_xy"], frame["leg_m"]
     corners = [(cx, cy), (cx + sx * leg, cy), (cx, cy + sy * leg)]
     points = [occ.addPoint(x, y, 0.0) for x, y in corners]
     lines = [occ.addLine(points[k], points[(k + 1) % 3]) for k in range(3)]
     triangle = occ.addPlaneSurface([occ.addCurveLoop(lines)])
     height = trap["height_m"]
     prism = next(tag for dim, tag in occ.extrude([(2, triangle)], 0, 0, height) if dim == 3)
-    face_centre = (cx + sx * leg / 2, cy + sy * leg / 2, height / 2)
     top_centre = (cx + sx * leg / 3, cy + sy * leg / 3, height)
-    return prism, face_centre, top_centre
+    return prism, tuple(frame["face_centre_m"]), top_centre
 
 
 def wall_patches(occ, lx, ly, lz, fraction):
@@ -268,19 +277,29 @@ def wall_patches(occ, lx, ly, lz, fraction):
     return patches
 
 
-def source_system_parts(source, mesh_id, region_id):
-    """The ports' boundaries ("moving"), components (ideal velocity, 1 m/s) and excitation ports, and the rigid rest."""
-    names = [port["name"] for port in source["ports"]]
-    boundaries = [{"group": {"dimension": 2, "mesh_id": mesh_id, "name": name, "tag": None},
-                   "id": f"boundary:{name}", "kind": "moving" if name in names else "rigid", "name": name,
-                   "parameters": {}, "region_id": region_id} for name in names + ["box"]]
-    components = [{"boundary_ids": [f"boundary:{name}"], "id": f"component:{name}", "kind": "ideal_velocity_source",
-                   "name": f"{name} piston", "parameters": {"motion_profile": "uniform",
-                                                           "boundary_motion_weights": {f"boundary:{name}": 1.0}}}
-                  for name in names]
-    ports = [{"component_id": f"component:{name}", "id": f"excitation:{name}", "kind": "normal_velocity",
-              "name": f"{name} unit normal velocity"} for name in names]
+def boundary(group, kind, mesh_id, region_id):
+    return {"group": {"dimension": 2, "mesh_id": mesh_id, "name": group, "tag": None}, "id": f"boundary:{group}",
+            "kind": kind, "name": group, "parameters": {}, "region_id": region_id}
+
+
+def velocity_port_parts(groups, mesh_id, region_id):
+    """A PORT per physical group: its boundary ("moving"), component (ideal velocity, 1 m/s uniform) and excitation
+    port "excitation:<group>" -- the source's ports and the velocity_port trap faces alike."""
+    boundaries = [boundary(group, "moving", mesh_id, region_id) for group in groups]
+    components = [{"boundary_ids": [f"boundary:{group}"], "id": f"component:{group}", "kind": "ideal_velocity_source",
+                   "name": f"{group} piston", "parameters": {"motion_profile": "uniform",
+                                                            "boundary_motion_weights": {f"boundary:{group}": 1.0}}}
+                  for group in groups]
+    ports = [{"component_id": f"component:{group}", "id": f"excitation:{group}", "kind": "normal_velocity",
+              "name": f"{group} unit normal velocity"} for group in groups]
     return boundaries, components, ports
+
+
+def source_system_parts(source, mesh_id, region_id):
+    """The source's ports (velocity_port_parts) and the rigid rest of its box."""
+    boundaries, components, ports = velocity_port_parts([port["name"] for port in source["ports"]], mesh_id,
+                                                        region_id)
+    return boundaries + [boundary("box", "rigid", mesh_id, region_id)], components, ports
 
 
 def project_document(name, system, mesh_file, frequencies, components):
@@ -299,11 +318,16 @@ def project_document(name, system, mesh_file, frequencies, components):
 def project(spec, mesh_facts):
     boundaries, components, ports = source_system_parts(spec["source"], "mesh:room", "region:room")
     boundaries = [b for b in boundaries if mesh_facts["area_m2"].get(b["name"])]
-    for name in ("walls", "patches", "traps"):
+    traps = checked_traps(spec)
+    trap_boundaries, trap_components, trap_ports = velocity_port_parts(
+        [trap_group(trap) for trap in traps if trap["face"] == "velocity_port"], "mesh:room", "region:room")
+    boundaries += trap_boundaries + [boundary(trap_group(trap), "plane_wave_tube_termination", "mesh:room",
+                                              "region:room") for trap in traps if trap["face"] == "rho_c"]
+    components, ports = components + trap_components, ports + trap_ports
+    for name in ("walls", "patches"):
         if mesh_facts["area_m2"].get(name):
-            boundaries.append({"group": {"dimension": 2, "mesh_id": "mesh:room", "name": name, "tag": None},
-                               "id": f"boundary:{name}", "name": name, "parameters": {}, "region_id": "region:room",
-                               "kind": "rigid" if name == "walls" else "plane_wave_tube_termination"})
+            boundaries.append(boundary(name, "rigid" if name == "walls" else "plane_wave_tube_termination",
+                                       "mesh:room", "region:room"))
     system = {
         "boundaries": boundaries, "components": components, "excitation_ports": ports,
         "id": f"system:room-{spec['name']}", "interfaces": [],
@@ -325,9 +349,9 @@ def main(stage, spec_path):
     (build / PROJECT_FILE).write_text(json.dumps(project(spec, facts), indent=1))
     (stage / REQUEST_FILE).write_text(json.dumps({"schema_version": 1, "frequencies_hz": spec["frequencies_hz"],
                                                   "retain": ["fem_nodal_pressure"]}, indent=1))
-    (stage / "room.json").write_text(json.dumps(spec, indent=1))
+    (stage / SPEC_FILE).write_text(json.dumps(spec, indent=1))
     (stage / POINTS_FILE).write_text(json.dumps(facts, indent=1))
-    print(json.dumps({k: v for k, v in facts.items() if k != "seat_points_m"}, indent=1))
+    print(json.dumps({k: v for k, v in facts.items() if k not in ("seat_points_m", "trap_points_m")}, indent=1))
     return stage
 
 

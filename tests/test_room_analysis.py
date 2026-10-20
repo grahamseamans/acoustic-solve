@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fake_boundary_lab_results import write_result  # noqa: E402
+from fake_boundary_lab_results import write_result, write_room_result  # noqa: E402
 from acoustic_solve.room import analysis  # noqa: E402
 from acoustic_solve.room.spec import FREE_FIELD_SPECS_FILE, POINTS_FILE, seat_point_indices  # noqa: E402
 
@@ -65,10 +65,7 @@ def test_the_modal_sum_is_reciprocal_and_peaks_at_the_analytic_modes():
 
 def a_room_stage(frequencies, nodes, names_and_points, pressure_at_nodes):
     stage = Path(tempfile.mkdtemp(prefix="room-stage-"))
-    write_result(stage / "raw", frequencies, ["excitation:front", "excitation:rear"],
-                 [{"id": "acoustic:fem-nodal-pressure", "quantity": "fem_nodal_pressure",
-                   "axes": ["excitation", "fem_node"], "values": pressure_at_nodes}],
-                 domains=[{"id": "fem:room", "kind": "fem_volume", "coordinates": {"points_m": nodes}}])
+    write_room_result(stage / "raw", frequencies, ["excitation:front", "excitation:rear"], nodes, pressure_at_nodes)
     (stage / POINTS_FILE).write_text(json.dumps({"seat_points_m": names_and_points}))
     return stage
 

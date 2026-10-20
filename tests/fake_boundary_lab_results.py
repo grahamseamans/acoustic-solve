@@ -1,6 +1,6 @@
 """A `blab project solve` result directory written by hand, in Boundary Lab's own layout (manifest.json, domains.json +
 domains.npz, frequencies/<index>.json + .npz: ~/boundary-lab/src/blab/headless.py at the pinned commit), for the tests
-of the reader and the room analysis. No solver.
+of the reader and the room analysis (a room's: write_room_result). No solver.
 """
 import json
 from pathlib import Path
@@ -44,3 +44,12 @@ def write_result(directory, frequencies_hz, port_ids, quantities, domains=(), st
                 "domains_metadata_file": "domains.json", "domains_file": "domains.npz"}
     (directory / "manifest.json").write_text(json.dumps(manifest))
     return directory
+
+
+def write_room_result(directory, frequencies_hz, port_ids, nodes, pressure_at_nodes):
+    """A room solve's result: one fem_volume domain (its nodes) and the retained fem_nodal_pressure (frequency, port,
+    node)."""
+    return write_result(directory, frequencies_hz, port_ids,
+                        [{"id": "acoustic:fem-nodal-pressure", "quantity": "fem_nodal_pressure",
+                          "axes": ["excitation", "fem_node"], "values": pressure_at_nodes}],
+                        domains=[{"id": "fem:room", "kind": "fem_volume", "coordinates": {"points_m": nodes}}])
