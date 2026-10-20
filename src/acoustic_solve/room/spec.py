@@ -5,8 +5,13 @@ point's, a trap point's, a trap group's or a sensed quantity's name.
 """
 import math
 
+# THE AIR every room is solved in: dry air at 20 degC and 101325 Pa, from E. Sengpiel, "Comparative representation of
+# sound field quantities" (sengpielaudio.com, mirrored by references/fetch_sources.sh), lines 6-8 of its text: "Air
+# temperarature = 20 degC: (Atmospheric pressure 10,1325 Pa ...)", "Density of air at 20 degC: = 1.204 kg / m3",
+# "Speed of sound at 20 degC: c = 343 m / s" (its rho c, line 10: 413 N s / m^3). (Until 2026-10-20 these were
+# Boundary Lab's region defaults, 1.21 and 343.0, physical_model.py:96-97, which give no source.)
 SOUND_SPEED_M_PER_S = 343.0
-DENSITY_KG_PER_M3 = 1.21
+DENSITY_KG_PER_M3 = 1.204
 POINTS_FILE = "seat_points.json"               # the room stage's: {"seat_points_m": {name: [x, y, z]},
                                                #   "trap_points_m": {"<trap>/<mic>": [x, y, z]}, mesh facts}
 SPEC_FILE = "room.json"                        # the room stage's copy of its spec
