@@ -5,6 +5,7 @@
 - no pinned value is written by hand in any code line of the repository (Dockerfile, shell, Python, workflow, bin/):
   comments may cite a commit (a source line read at it), code may not hold one;
 - the lock, the patch that pins Boundary Lab's BEAT Engine and pins.toml name one engine, one wheel;
+- the image's venv is venv/requirements.lock, --require-hashes --no-deps, then Boundary Lab --no-deps + pip check;
 - the image declares `engine` (asked of its venv) and `solver_version` (the build argument) as its facts.
 Standard library only:
 
@@ -98,13 +99,25 @@ def test_the_image_declares_its_engine_and_solver_version_as_facts():
            '"${BEAT_ENGINE_VERSION}"' in DOCKERFILE.read_text()
 
 
+def test_the_image_venv_is_the_lock_installed_without_a_resolver():
+    dockerfile = DOCKERFILE.read_text()
+    assert "COPY venv/requirements.lock /opt/blab-requirements.lock" in dockerfile
+    assert "pip install --no-cache-dir --no-deps --require-hashes -r /opt/blab-requirements.lock" in dockerfile
+    assert "pip install --no-cache-dir --no-deps /opt/boundary-lab" in dockerfile
+    assert "/opt/blab-venv/bin/pip check" in dockerfile
+    pip_installs = re.findall(r"pip install [^\n]*", dockerfile)
+    assert all("--no-deps" in line for line in pip_installs), f"a pip install that resolves: {pip_installs}"
+    ignored = (REPOSITORY_ROOT / ".dockerignore").read_text().splitlines()
+    assert "!venv/requirements.lock" in ignored, ".dockerignore keeps the lock out of the build context"
+
+
 def test_a_pins_file_with_a_key_missing_or_a_floating_image_is_refused():
     import tempfile
     scratch = Path(tempfile.mkdtemp(prefix="pins-"))
     text = (REPOSITORY_ROOT / "pins.toml").read_text()
     for broken, words in ((text.replace("solver_version = ", "solver_versio = "), "exactly"),
                           (re.sub(r'pod_image = ".*"', 'pod_image = "ghcr.io/x/y:latest"', text), ":latest"),
-                          (text.replace("solver_version = 1", 'solver_version = "1"'), "not an integer")):
+                          (re.sub(r"solver_version = \d+", 'solver_version = "1"', text), "not an integer")):
         (scratch / "pins.toml").write_text(broken)
         try:
             pins.read_pins(scratch / "pins.toml")

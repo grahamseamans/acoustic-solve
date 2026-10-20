@@ -5,7 +5,8 @@
 - Julia `julia_version` (x86_64);
 - Boundary Lab at `boundary_lab_commit`, with `patches/boundary-lab/0001-pin-beat-engine-ti2.patch` (BEAT Engine pin
   0.2.0 → the fork release `engine`) and `0002-transfer-impedance-layer.patch` applied;
-- the venv;
+- the venv: `venv/requirements.lock` exactly (`--require-hashes --no-deps`), then the patched Boundary Lab
+  `--no-deps`; `pip check` fails the build if the lock misses a dependency;
 - the precompiled Julia depot for both BEAT backends, CPU and CUDA. Since 0.3.0+ti2 the coupled engine lives in the
   backend bundles (`BeatEngineCpuBundle`, `BeatEngineCudaBundle`) with a precompile workload, so the build caches the
   engine and its coupled call graph instead of every worker compiling them from source.
@@ -88,18 +89,13 @@ compressed copies during push, ~12 GB. The free-disk step removes Android, .NET,
 
 ## Build and publish
 
-See `PLANS/2026-10-19-extraction-from-monitoring.md` ("Proposal") for the move from the beat-runpod mirror to this
-repo's own workflow. Until it is switched on, the image pods run is `pins.toml`'s `pod_image`
-(`ghcr.io/grahamseamans/beat-runpod:<sha>`), built 2026-10-14 from monitoring's `tools/runpod/image/` -- the tree this
-folder was moved from, with the same build steps.
+`.github/workflows/image.yml` builds `ghcr.io/grahamseamans/acoustic-solve:<sha>` (first run 2026-10-20, fd29901); the
+GHCR package is public, so RunPod pulls it without a registry credential.
 
 1. Commit the change here; bump `solver_version` in `pins.toml` in the same commit when it can change a number.
-2. `gh workflow run image.yml` (about 30–40 min the first time; the registry cache makes a start.sh-only or facts-only
-   change quick: the commit and SOLVER_VERSION are the LAST layer since 2026-10-14).
-3. The first time: GHCR → the package → Package settings → visibility **Public**. Otherwise RunPod needs a registry
-   credential (`containerRegistryAuthId`).
-   (https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)
-4. Move `pod_image` in `pins.toml` to the new `:<sha>`. Every client takes it from there (acoustic_solve.pins).
+2. Push, then `gh workflow run image.yml` (about 30–40 min the first time; the registry cache makes a start.sh-only or
+   facts-only change quick: the commit and SOLVER_VERSION are the LAST layer).
+3. Move `pod_image` in `pins.toml` to the new `:<sha>`. Every client takes it from there (acoustic_solve.pins).
 
 ## SOLVER_VERSION: bump it when a change changes results
 

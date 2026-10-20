@@ -34,21 +34,10 @@ cardioid-sub study's patterns and tables (tools/room/cardioid_sub.py).
    go, its tests that touch moved code pass.
 3. Nothing is pushed: acoustic-solve, monitoring and beat-runpod wait for the user's review.
 
-## Proposal: who builds the image
+## Who builds the image (taken)
 
-Today: `git subtree push --prefix=tools/runpod/image github-beat-runpod:grahamseamans/beat-runpod.git main`, a mirror
-repo whose Actions build `ghcr.io/grahamseamans/beat-runpod:<mirror sha>`. The image's `image_commit` fact is then a
-mirror commit no source repo has.
-
-Proposed: this repo's own workflow (.github/workflows/image.yml, `workflow_dispatch` only until the user switches it on)
-builds `ghcr.io/grahamseamans/acoustic-solve:<acoustic-solve sha>` from the repo root (Dockerfile at image/, patches at
-patches/boundary-lab/, build args from pins.toml). image_commit is then a commit of this repo. The beat-runpod mirror,
-its deploy key and the subtree push retire. Steps for the user (none done here):
-
-    git -C ~/acoustic-solve push -u origin main                       # the workflow does not run on push
-    gh workflow run image.yml -R grahamseamans/acoustic-solve          # build + push :<sha> and :latest
-    # GHCR -> package acoustic-solve -> settings -> visibility Public (RunPod pulls without a credential)
-    # then in pins.toml: pod_image = "ghcr.io/grahamseamans/acoustic-solve:<sha>", and solver_version bumped if the
-    # rebuild can change a number (see SHORTCUTS: the image venv resolves its dependencies at build time)
-
-Until then pins.toml keeps pointing at the current beat-runpod image, which this tree describes.
+This repo's own workflow (.github/workflows/image.yml, `workflow_dispatch`) builds
+`ghcr.io/grahamseamans/acoustic-solve:<acoustic-solve sha>` from the repo root (Dockerfile at image/, patches at
+patches/boundary-lab/, the venv from venv/requirements.lock, build args from pins.toml), so `image_commit` is a commit
+of this repo. It ran on 2026-10-20 (fd29901); the package is public. What remains is in SHORTCUTS.md: pin `pod_image`
+to the build of the lock-installing commit, then retire the beat-runpod mirror, its deploy key and the subtree push.

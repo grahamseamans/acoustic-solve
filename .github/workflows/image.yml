@@ -2,8 +2,7 @@
 # Every pin is a build argument read from pins.toml (python3 -m acoustic_solve.pins docker-build-args).
 # Pattern: https://docs.github.com/en/actions/use-cases-and-examples/publishing-packages/publishing-docker-images
 #
-# RUN BY HAND ONLY (`gh workflow run image.yml`) until the user decides it replaces the beat-runpod mirror
-# (PLANS/2026-10-19-extraction-from-monitoring.md, "Proposal"): a push must never publish an image by surprise.
+# RUN BY HAND ONLY (`gh workflow run image.yml`): a push must never publish an image by surprise.
 name: image
 
 on:

@@ -30,7 +30,7 @@ modules (`canonical_digest`, `weighted_sums`, `pins`).
 
 A new venv from scratch (never over the live one): `venv/build-venv.sh <new venv dir>`, then point `BLAB_VENV` at it
 or move it into place. After a deliberate change to the venv: `python3 venv/lock_from_venv.py <venv> >
-venv/requirements.lock`, review the diff, bump `solver_version` if the image's venv follows it.
+venv/requirements.lock`, review the diff, bump `solver_version` (the image installs the same lock).
 
 ## Use
 

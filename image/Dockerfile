@@ -2,7 +2,8 @@
 # Boundary Lab + BEAT Engine, CPU and CUDA backends, fully installed at build time, for RunPod pods (GPU and CPU).
 # x86_64 only. A pod from this image is ready to solve once sshd is up: nothing is installed or downloaded at start.
 #
-# BUILT FROM THE REPOSITORY ROOT (the context holds patches/boundary-lab/ and image/; .dockerignore keeps the rest out)
+# BUILT FROM THE REPOSITORY ROOT (the context holds patches/boundary-lab/, venv/requirements.lock and image/;
+# .dockerignore keeps the rest out)
 # WITH EVERY PIN AS A BUILD ARGUMENT, none defaulted here: pins.toml is the one place they are written, and
 # `python3 -m acoustic_solve.pins docker-build-args` prints them (.github/workflows/image.yml passes that output).
 # A build without one fails at its first use (the `test -n` lines).
@@ -106,11 +107,20 @@ RUN git clone https://github.com/JWSound/boundary-lab /opt/boundary-lab \
       /opt/blab-patches/0002-transfer-impedance-layer.patch
 
 # ---- venv ----------------------------------------------------------------------------------------------------------
-# Ubuntu 24.04's python3 is 3.12; Boundary Lab requires >=3.11 (its pyproject.toml). The venv's other packages are
-# resolved here at build time, NOT from venv/requirements.lock (SHORTCUTS.md 2026-10-19: the next image build installs
-# from the lock, with solver_version bumped).
-RUN python3 -m venv /opt/blab-venv \
- && /opt/blab-venv/bin/pip install --no-cache-dir /opt/boundary-lab manifold3d==3.5.3 \
+# THE SAME SET AS THE LOCAL VENV: venv/requirements.lock, installed the way venv/build-venv.sh installs it.
+# --require-hashes --no-deps: exactly the locked files, no resolver; a file whose hash is not locked fails the build.
+# The lock is for Python 3.12 on x86_64: Ubuntu 24.04's python3 is 3.12 (Boundary Lab requires >=3.11, its
+# pyproject.toml), and every locked binary package has a cp312 manylinux x86_64 wheel among its hashes (checked
+# 2026-10-20 against PyPI; the newest tag is pymeshlab's manylinux_2_35, under noble's glibc 2.39). The `python -c`
+# check fails the build on any other minor version rather than installing a lock made for another interpreter.
+# Boundary Lab then goes in --no-deps; `pip check` fails the build if it (or anything) needs a distribution the
+# lock does not hold, so nothing is ever resolved here.
+COPY venv/requirements.lock /opt/blab-requirements.lock
+RUN python3 -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version' \
+ && python3 -m venv /opt/blab-venv \
+ && /opt/blab-venv/bin/pip install --no-cache-dir --no-deps --require-hashes -r /opt/blab-requirements.lock \
+ && /opt/blab-venv/bin/pip install --no-cache-dir --no-deps /opt/boundary-lab \
+ && /opt/blab-venv/bin/pip check \
  && test "$(/opt/blab-venv/bin/python -c 'import beat_engine; print(beat_engine.__version__)')" = "${BEAT_ENGINE_VERSION}" \
  && /opt/blab-venv/bin/python -c 'import gmsh, blab.solvers.engine_distribution' \
  && ln -s /opt/blab-venv/bin/blab /usr/local/bin/blab

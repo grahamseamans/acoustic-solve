@@ -9,7 +9,7 @@ pod_image = "ghcr.io/grahamseamans/beat-runpod:b256466f32fb31e7c96512f27ba9ddf30
 # venv's packages). The image declares it in /etc/podd-facts.json; a client's run id hashes it with `engine`, so a
 # result-changing image is a new row, never a silent one. A change that cannot move a number (start.sh, a comment)
 # leaves it alone. Started at 1 on 2026-10-14.
-solver_version = 1
+solver_version = 2
 
 # BEAT Engine, the release Boundary Lab is pinned to by patches/boundary-lab/0001 (the fork release, wheel URL +
 # sha256 there): the image checks its venv imports this version and declares it as the fact `engine`.

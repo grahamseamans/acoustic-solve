@@ -3,3 +3,4 @@
 !image/start.sh
 !image/beat-workload.sh
 !patches/boundary-lab/*.patch
+!venv/requirements.lock

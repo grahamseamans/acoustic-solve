@@ -1,21 +1,13 @@
 # SHORTCUTS -- jank to come back to (each with when it was taken)
 
-## 2026-10-19 14:00 -- the image's venv is not the lock
+## 2026-10-19 14:00 -- pods still run the beat-runpod mirror's image
 
-image/Dockerfile's venv step still installs Boundary Lab with its dependencies RESOLVED AT BUILD TIME (plus
-manifold3d==3.5.3), as the image pinned in pins.toml was built on 2026-10-14. venv/requirements.lock is the local
-venv's exact set. So the pod and the local venv can differ in numpy/scipy/meshio patch versions. Not changed in the
-extraction because a rebuilt image that installs the lock can change numbers, which needs `solver_version` bumped AND
-a new image built AND `pod_image` moved in one go (the user's call: the image build is the proposal in
-PLANS/2026-10-19-extraction-from-monitoring.md). Fix: the Dockerfile copies venv/requirements.lock and installs it
-`--require-hashes --no-deps` (pymeshlab included or split out), then Boundary Lab `--no-deps`; bump solver_version.
-
-## 2026-10-19 14:00 -- the beat-runpod mirror still builds the live image
-
-pins.toml's `pod_image` is `ghcr.io/grahamseamans/beat-runpod:<sha>`, built by the beat-runpod mirror from
-monitoring's old tools/runpod/image/. This repo's workflow (`image.yml`) is dispatch-only and has never run. Until the
-proposal is taken, a change to image/ here cannot reach a pod. Fix: the proposal's steps, then retire the mirror and
-its deploy key (`github-beat-runpod` in ~/.ssh/config).
+This repo's workflow (`image.yml`) now builds the image: it ran successfully on 2026-10-20 for fd29901, and the GHCR
+package `ghcr.io/grahamseamans/acoustic-solve` is public. pins.toml's `pod_image` still names
+`ghcr.io/grahamseamans/beat-runpod:<sha>`, built by the beat-runpod mirror from monitoring's old tools/runpod/image/.
+Fix: build the commit whose image installs venv/requirements.lock (solver_version 2) and pin `pod_image` to that
+`ghcr.io/grahamseamans/acoustic-solve:<sha>`; then retire the beat-runpod mirror and its deploy key
+(`github-beat-runpod` in ~/.ssh/config).
 
 (moved from monitoring's SHORTCUTS.md on 2026-10-19 with the patches; dated as taken)
 
