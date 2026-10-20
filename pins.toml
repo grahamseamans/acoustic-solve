@@ -3,7 +3,7 @@
 # when any of these values is copied by hand anywhere else in the repo.
 
 # The image a solve runs on: a tag the image workflow pushed, never :latest. podd launches exactly this.
-pod_image = "ghcr.io/grahamseamans/beat-runpod:b256466f32fb31e7c96512f27ba9ddf30aaee253"
+pod_image = "ghcr.io/grahamseamans/acoustic-solve:1300767895e7921792c3b9d1cd6ead9be4e9607c"
 
 # BUMPED WHENEVER A CHANGE TO THE IMAGE CAN CHANGE A SOLVE'S NUMBERS (a patch, a pin below, a solver setting, the
 # venv's packages). The image declares it in /etc/podd-facts.json; a client's run id hashes it with `engine`, so a
