@@ -1,0 +1,25 @@
+#!/bin/sh
+# THE WAY INTO THE BLAB VENV (Boundary Lab + BEAT Engine + gmsh + pymeshlab + podd: venv/requirements.lock), for this
+# repo and for every client (e.g. the speaker project that uses this: its acoustics model, run tool and tests). Install once:
+#
+#   ln -s ~/acoustic-solve/bin/blabrun ~/.local/bin/blabrun
+#
+#   blabrun -m acoustic_solve.room.build <stage> <room.json>
+#   blabrun <a client's script.py> <its arguments>
+#   blabrun --acceptance        # the deep check: the installed blab is the pinned commit + patches/boundary-lab
+#
+# Before anything runs, the venv is CHECKED against the lock (acoustic_solve.blab_venv): a venv that drifted fails
+# loudly. gmsh is the venv's own pip wheel (gmsh 4.12.1 has an x86_64 wheel; the comment here used to say Ubuntu's
+# python3-gmsh through --system-site-packages, which was the old aarch64 container's way and was wrong for this one).
+# This repo's own package is put on the path here (PYTHONPATH=<this repo>/src), never installed into the venv.
+# $BLAB_VENV picks another venv (default ~/blab-venv): venv/build-venv.sh checks a new one with it.
+set -eu
+repository=$(dirname "$(dirname "$(readlink -f "$0")")")
+python="${BLAB_VENV:-$HOME/blab-venv}/bin/python"
+[ -x "$python" ] || { echo "blabrun (╯°□°)╯ no venv at ${BLAB_VENV:-$HOME/blab-venv}: venv/build-venv.sh makes one" >&2; exit 1; }
+export PYTHONPATH="$repository/src${PYTHONPATH:+:$PYTHONPATH}"
+if [ "${1:-}" = --acceptance ]; then
+  exec "$python" -m acoustic_solve.blab_venv --deep
+fi
+"$python" -m acoustic_solve.blab_venv
+PATH=$HOME/.local/bin:$PATH exec "$python" "$@"

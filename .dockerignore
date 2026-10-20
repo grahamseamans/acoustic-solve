@@ -1,0 +1,5 @@
+# The image's build context is the repository root (image/Dockerfile), and it needs only these:
+*
+!image/start.sh
+!image/beat-workload.sh
+!patches/boundary-lab/*.patch

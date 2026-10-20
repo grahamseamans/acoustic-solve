@@ -1,0 +1,354 @@
+From cce2dd23991c822dab0221e1739788d7c7cdfbd9 Mon Sep 17 00:00:00 2001
+From: graham <grahamseamans@users.noreply.github.com>
+Date: Sun, 4 Oct 2026 10:34:32 -0700
+Subject: [PATCH 3/4] Advertise interface transfer-impedance layers as a worker
+ capability
+
+The Julia side validates requests against the schema only, and boundary
+parameters are open, so an engine without the layer accepts
+boundary.parameters["transfer_impedance"] and solves as if it were not
+there. Clients must be able to tell before they submit.
+
+- worker-v1.json advertises "optional_physics": ["interface_transfer_impedance"].
+- negotiate_submission refuses a request that carries a layer unless the
+  worker advertises it; validate_worker_ready checks the new list.
+- Conformance case coupled_interface_transfer_impedance_layer: the layer
+  on the bounded interface boundary is a valid compiled system.
+- Version 0.3.0+ti1 in pyproject, __version__ and worker-v1.json.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MXLCRc7E1cDCAXXCEn1VoL
+---
+ pyproject.toml                                |   2 +-
+ src/beat_engine/__init__.py                   |   2 +-
+ .../beat_contract/conformance.json            | 182 ++++++++++++++++++
+ src/beat_engine/beat_contract/worker-v1.json  |   5 +-
+ src/beat_engine/beat_contract/worker.py       |  11 ++
+ .../julia_local/tests/contract_tests.jl       |   1 +
+ tests/test_worker_negotiation.py              |  30 +++
+ 7 files changed, 230 insertions(+), 3 deletions(-)
+
+diff --git a/pyproject.toml b/pyproject.toml
+index bc8f967..d2ba366 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
+ 
+ [project]
+ name = "beat-engine"
+-version = "0.3.0"
++version = "0.3.0+ti1"
+ description = "BEAT numerical engine and versioned worker client for electroacoustics"
+ readme = "README.md"
+ requires-python = ">=3.11"
+diff --git a/src/beat_engine/__init__.py b/src/beat_engine/__init__.py
+index 60fea0d..4950d8f 100644
+--- a/src/beat_engine/__init__.py
++++ b/src/beat_engine/__init__.py
+@@ -4,7 +4,7 @@ from .backends import BackendInfo, backend_catalog, backend_info
+ from .client import EngineWorker, WorkerPool
+ from .paths import EnginePaths, engine_paths
+ 
+-__version__ = "0.3.0"
++__version__ = "0.3.0+ti1"
+ __all__ = [
+     "BackendInfo",
+     "backend_catalog",
+diff --git a/src/beat_engine/beat_contract/conformance.json b/src/beat_engine/beat_contract/conformance.json
+index 5225c39..a05212b 100644
+--- a/src/beat_engine/beat_contract/conformance.json
++++ b/src/beat_engine/beat_contract/conformance.json
+@@ -707,6 +707,188 @@
+         }
+       ]
+     },
++    {
++      "name": "coupled_interface_transfer_impedance_layer",
++      "valid": true,
++      "changes": [
++        {
++          "path": [
++            "compiled_system"
++          ],
++          "value": {
++            "id": "system:example",
++            "name": "Independent BEAT example",
++            "contract_version": 1,
++            "meshes": [
++              {
++                "id": "mesh:exterior",
++                "name": "Exterior",
++                "file": "exterior.msh",
++                "purpose": "bem_surface",
++                "scale_to_m": 0.001,
++                "translation_m": [
++                  0,
++                  0,
++                  0
++                ]
++              },
++              {
++                "id": "mesh:interior",
++                "name": "Interior",
++                "file": "interior.msh",
++                "purpose": "fem_volume",
++                "scale_to_m": 0.001,
++                "translation_m": [
++                  0,
++                  0,
++                  0
++                ]
++              }
++            ],
++            "regions": [
++              {
++                "id": "region:exterior",
++                "name": "Exterior",
++                "kind": "unbounded_air",
++                "mesh_ids": [
++                  "mesh:exterior"
++                ],
++                "volume_groups": [],
++                "sound_speed_m_per_s": 343.0,
++                "density_kg_per_m3": 1.21,
++                "loss_model": {}
++              },
++              {
++                "id": "region:interior",
++                "name": "Interior",
++                "kind": "bounded_air",
++                "mesh_ids": [
++                  "mesh:interior"
++                ],
++                "volume_groups": [
++                  {
++                    "mesh_id": "mesh:interior",
++                    "dimension": 3,
++                    "tag": 1,
++                    "name": null
++                  }
++                ],
++                "sound_speed_m_per_s": 343,
++                "density_kg_per_m3": 1.21,
++                "loss_model": {}
++              }
++            ],
++            "boundaries": [
++              {
++                "id": "boundary:source",
++                "name": "Source",
++                "kind": "moving",
++                "region_id": "region:exterior",
++                "group": {
++                  "mesh_id": "mesh:exterior",
++                  "dimension": 2,
++                  "tag": 2,
++                  "name": null
++                },
++                "parameters": {}
++              },
++              {
++                "id": "boundary:interior-interface",
++                "name": "interior",
++                "region_id": "region:interior",
++                "kind": "interface",
++                "group": {
++                  "mesh_id": "mesh:interior",
++                  "dimension": 2,
++                  "tag": 3,
++                  "name": null
++                },
++                "parameters": {}
++              },
++              {
++                "id": "boundary:exterior-interface",
++                "name": "exterior",
++                "region_id": "region:exterior",
++                "kind": "interface",
++                "group": {
++                  "mesh_id": "mesh:exterior",
++                  "dimension": 2,
++                  "tag": 3,
++                  "name": null
++                },
++                "parameters": {}
++              }
++            ],
++            "interfaces": [
++              {
++                "id": "interface:one",
++                "name": "One",
++                "bounded_boundary_id": "boundary:interior-interface",
++                "unbounded_boundary_id": "boundary:exterior-interface",
++                "topology": {
++                  "fem_vertex_indices": [
++                    0,
++                    1,
++                    2
++                  ],
++                  "fem_to_bem_vertex_indices": [
++                    0,
++                    1,
++                    2
++                  ],
++                  "fem_face_indices": [
++                    0
++                  ],
++                  "bem_face_indices": [
++                    0
++                  ],
++                  "normal_sign": [
++                    -1
++                  ],
++                  "max_coordinate_error": 0.0,
++                  "fem_facets_on_tetra_boundary": 1,
++                  "bem_boundary_edges": 0
++                }
++              }
++            ],
++            "components": [
++              {
++                "id": "component:source",
++                "name": "Source",
++                "kind": "ideal_velocity_source",
++                "boundary_ids": [
++                  "boundary:source"
++                ],
++                "parameters": {}
++              }
++            ],
++            "excitation_ports": [
++              {
++                "id": "excitation:source",
++                "name": "Source",
++                "component_id": "component:source",
++                "kind": "normal_velocity"
++              }
++            ]
++          }
++        },
++        {
++          "path": [
++            "compiled_system",
++            "boundaries",
++            1,
++            "parameters"
++          ],
++          "value": {
++            "transfer_impedance": {
++              "model": "resistance_mass",
++              "resistance_pa_s_per_m": 125.0,
++              "mass_kg_per_m2": 0.004
++            }
++          }
++        }
++      ]
++    },
+     {
+       "name": "vertex_length_mismatch",
+       "valid": false,
+diff --git a/src/beat_engine/beat_contract/worker-v1.json b/src/beat_engine/beat_contract/worker-v1.json
+index 36d154a..4a6d66b 100644
+--- a/src/beat_engine/beat_contract/worker-v1.json
++++ b/src/beat_engine/beat_contract/worker-v1.json
+@@ -6,7 +6,7 @@
+   },
+   "engine": {
+     "name": "BEAT Engine",
+-    "version": "0.3.0"
++    "version": "0.3.0+ti1"
+   },
+   "contracts": {
+     "system_request": [
+@@ -52,6 +52,9 @@
+     "exp(-i omega t)",
+     "exp(+i omega t)"
+   ],
++  "optional_physics": [
++    "interface_transfer_impedance"
++  ],
+   "optional_output_quantities": [
+     "interface_average_normal_velocity",
+     "interface_radiated_pressure"
+diff --git a/src/beat_engine/beat_contract/worker.py b/src/beat_engine/beat_contract/worker.py
+index f4fdbfd..c9be7a3 100644
+--- a/src/beat_engine/beat_contract/worker.py
++++ b/src/beat_engine/beat_contract/worker.py
+@@ -44,6 +44,10 @@ def validate_worker_ready(info: dict) -> None:
+             and all(type(value) is int and value > 0 for value in versions),
+             f"invalid {name} versions.",
+         )
++    _require(
++        all(isinstance(value, str) and value for value in info.get("optional_physics", [])),
++        "invalid optional_physics capabilities.",
++    )
+     for name in ("operations", "precisions", "solve_kinds"):
+         values = info.get(name)
+         _require(
+@@ -86,6 +90,13 @@ def negotiate_submission(info: dict, request: dict, operation: str) -> dict:
+                 "interface_radiated_pressure" in info.get("optional_output_quantities", []),
+                 "interface radiation output is unavailable; update BEAT Engine.",
+             )
++        if any("transfer_impedance" in boundary["parameters"] for boundary in request["compiled_system"]["boundaries"]):
++            # An engine without the capability ignores the parameter and solves without the layer.
++            _require(
++                "interface_transfer_impedance" in info.get("optional_physics", []),
++                "interface transfer-impedance layers are unavailable (this engine would solve without them); "
++                "update BEAT Engine.",
++            )
+         options = request["solver_options"]
+         kinds = {region["kind"] for region in request["compiled_system"]["regions"]}
+         kind = (
+diff --git a/src/beat_engine/julia_local/tests/contract_tests.jl b/src/beat_engine/julia_local/tests/contract_tests.jl
+index 960ff93..b52ecd9 100644
+--- a/src/beat_engine/julia_local/tests/contract_tests.jl
++++ b/src/beat_engine/julia_local/tests/contract_tests.jl
+@@ -67,6 +67,7 @@ end
+     @test info["contracts"]["system_request"] == [1]
+     @test info["contracts"]["compiled_system"] == [1]
+     @test info["contracts"]["system_result"] == [2]
++    @test info["optional_physics"] == ["interface_transfer_impedance"]
+     @test info["runtime"]["julia_version"] == string(VERSION)
+     @test length(info["engine"]["source_sha256"]) == 64
+     @test haskey(info["engine"]["source_files_sha256"], "julia_local/coupled_solver.jl")
+diff --git a/tests/test_worker_negotiation.py b/tests/test_worker_negotiation.py
+index 7d90cbf..abce3bb 100644
+--- a/tests/test_worker_negotiation.py
++++ b/tests/test_worker_negotiation.py
+@@ -202,3 +202,33 @@ def test_interface_radiation_requires_advertised_output(ready, payload):
+     ready["optional_output_quantities"].remove("interface_radiated_pressure")
+     with pytest.raises(WorkerCompatibilityError, match="interface radiation"):
+         negotiate_submission(ready, payload, "solve")
++
++
++def _conformance_request(name):
++    corpus = json.loads((CONTRACT / "conformance.json").read_text())
++    request = copy.deepcopy(corpus["base_request"])
++    for change in next(case for case in corpus["cases"] if case["name"] == name)["changes"]:
++        parent = request
++        for key in change["path"][:-1]:
++            parent = parent[key]
++        parent[change["path"][-1]] = change["value"]
++    return request
++
++
++def test_transfer_impedance_layer_requires_advertised_physics(ready):
++    layered = _conformance_request("coupled_interface_transfer_impedance_layer")
++    plain = _conformance_request("conforming_coupled_interface")
++    assert "interface_transfer_impedance" in ready["optional_physics"]
++    assert negotiate_submission(ready, layered, "solve")["result_schema_version"] == 2
++    # An engine that does not advertise the layer would solve without it: refuse before submitting.
++    for unpatched in (dict(ready, optional_physics=[]), {k: v for k, v in ready.items() if k != "optional_physics"}):
++        with pytest.raises(WorkerCompatibilityError, match="transfer-impedance layers are unavailable"):
++            negotiate_submission(unpatched, layered, "solve")
++        assert negotiate_submission(unpatched, plain, "solve")["result_schema_version"] == 2
++
++
++@pytest.mark.parametrize("value", [[""], [1], [None]])
++def test_rejects_invalid_optional_physics(ready, value):
++    ready["optional_physics"] = value
++    with pytest.raises(WorkerCompatibilityError, match="optional_physics"):
++        validate_worker_ready(ready)
+-- 
+2.43.0
+

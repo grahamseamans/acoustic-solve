@@ -1,0 +1,61 @@
+From b6455576cb2a8c262405f09c499ee66b83d19ce8 Mon Sep 17 00:00:00 2001
+From: graham <grahamseamans@users.noreply.github.com>
+Date: Sat, 3 Oct 2026 08:17:29 -0700
+Subject: [PATCH 1/2] Pin BEAT Engine 0.3.0+ti2 from the grahamseamans fork
+
+0.3.0 adds the interface_radiated_pressure output that this commit's
+coupled projects request (feat/interface-radiation, #28); 0.2.0 rejects it.
+0.3.0+ti2 is v0.3.0 plus interface transfer-impedance layers, the
+interface_transfer_impedance worker capability, and the coupled worker
+in the backend bundles with a precompile workload (fork branch
+transfer-impedance, tag v0.3.0-ti2). Wheel URL and sha256 from that
+release's SHA256SUMS.txt.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ pyproject.toml                          | 2 +-
+ src/blab/solvers/engine_distribution.py | 4 ++--
+ tests/test_engine_distribution.py       | 2 +-
+ 3 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/pyproject.toml b/pyproject.toml
+index e5a65d2..a6502aa 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -9,7 +9,7 @@ description = "Boundary element loudspeaker radiation solver"
+ readme = "README.md"
+ requires-python = ">=3.11"
+ dependencies = [
+-  "beat-engine @ https://github.com/JWSound/BEAT_Engine/releases/download/v0.2.0/beat_engine-0.2.0-py3-none-any.whl#sha256=bccad47b9647e5f4f7bc1ca6ac9d22e2e7751f1f39046fadc1e5e9782a282ad1",
++  "beat-engine @ https://github.com/grahamseamans/BEAT_Engine/releases/download/v0.3.0-ti2/beat_engine-0.3.0%2Bti2-py3-none-any.whl#sha256=69905d7353b7bbc132ec6d01d6eba465c77b8d65b42b0be508d860604d5bf111",
+   "gmsh",
+   "matplotlib",
+   "meshio",
+diff --git a/src/blab/solvers/engine_distribution.py b/src/blab/solvers/engine_distribution.py
+index 40299fc..a30cdee 100644
+--- a/src/blab/solvers/engine_distribution.py
++++ b/src/blab/solvers/engine_distribution.py
+@@ -5,8 +5,8 @@ try:
+ except ImportError as exc:
+     raise RuntimeError("BEAT Engine is not installed. Reinstall Boundary Lab with its declared dependencies.") from exc
+ 
+-if beat_engine.__version__ != "0.2.0":
+-    raise RuntimeError(f"Boundary Lab requires beat-engine 0.2.0; found {beat_engine.__version__}.")
++if beat_engine.__version__ != "0.3.0+ti2":
++    raise RuntimeError(f"Boundary Lab requires beat-engine 0.3.0+ti2; found {beat_engine.__version__}.")
+ 
+ from beat_engine import backend_catalog as backend_catalog
+ from beat_engine import backend_info as engine_backend_info
+diff --git a/tests/test_engine_distribution.py b/tests/test_engine_distribution.py
+index 8a43dfb..34b5777 100644
+--- a/tests/test_engine_distribution.py
++++ b/tests/test_engine_distribution.py
+@@ -52,4 +52,4 @@ sys.modules['beat_engine'] = engine
+ import blab.solvers.engine_distribution
+ """)
+     assert process.returncode != 0
+-    assert "requires beat-engine 0.2.0; found 0.0.0" in process.stderr
++    assert "requires beat-engine 0.3.0+ti2; found 0.0.0" in process.stderr
+-- 
+2.43.0
+

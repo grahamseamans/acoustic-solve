@@ -1,0 +1,6 @@
+__pycache__/
+*.egg-info/
+/build/
+/dist/
+# references/ mirrors are re-made by their scripts; only the README/INDEX files are in git
+/references/*/

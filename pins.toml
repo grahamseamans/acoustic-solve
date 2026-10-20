@@ -1,0 +1,23 @@
+# THE PINS: the one place each of these is written. Read by acoustic_solve.pins (clients' JOB requirements, the
+# blab venv's acceptance check, the image's build arguments for .github/workflows/image.yml). tests/test_pins.py fails
+# when any of these values is copied by hand anywhere else in the repo.
+
+# The image a solve runs on: a tag the image workflow pushed, never :latest. podd launches exactly this.
+pod_image = "ghcr.io/grahamseamans/beat-runpod:b256466f32fb31e7c96512f27ba9ddf30aaee253"
+
+# BUMPED WHENEVER A CHANGE TO THE IMAGE CAN CHANGE A SOLVE'S NUMBERS (a patch, a pin below, a solver setting, the
+# venv's packages). The image declares it in /etc/podd-facts.json; a client's run id hashes it with `engine`, so a
+# result-changing image is a new row, never a silent one. A change that cannot move a number (start.sh, a comment)
+# leaves it alone. Started at 1 on 2026-10-14.
+solver_version = 1
+
+# BEAT Engine, the release Boundary Lab is pinned to by patches/boundary-lab/0001 (the fork release, wheel URL +
+# sha256 there): the image checks its venv imports this version and declares it as the fact `engine`.
+engine = "0.3.0+ti2"
+
+# Boundary Lab upstream main on 2026-10-03 (the merge of feat/interface-radiation), patched by patches/boundary-lab/.
+boundary_lab_commit = "bb9030c4ae0b5906569b3b3932e221a0c97670ac"
+
+# The image's Julia (official x86_64 tarball) and its CUDA base (`base`, not `runtime`: image/Dockerfile says why).
+julia_version = "1.12.6"
+cuda_base_image = "nvidia/cuda:12.8.2-base-ubuntu24.04@sha256:b382332b575435b081b805b15b3aa1779a350a4e513f4d0449b4d7ad098e94ff"

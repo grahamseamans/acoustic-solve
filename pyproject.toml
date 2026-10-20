@@ -1,0 +1,9 @@
+# acoustic-solve is used from its checkout: bin/blabrun puts src/ on the path (the package reads pins.toml and the
+# lock from the repository root, so a copy installed elsewhere would refuse to load). The project table names it for
+# tools that read it; its dependencies are the blab venv's lock (venv/requirements.lock), not declared here.
+[project]
+name = "acoustic-solve"
+version = "0.1.0"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+description = "Shared acoustic simulation tooling: the Boundary Lab + BEAT solver image, its pins, the blab venv, the pod-side solve, the room solver"
