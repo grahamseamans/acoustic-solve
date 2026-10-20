@@ -51,3 +51,13 @@ passive law (rho c, any positive real impedance) is stable, which is all the gat
 
 `traps[i]` gains "name" and "face": "velocity_port" | "rho_c" (required, no default), and optional "mic_points_m":
 {name: [normal, along, up]} in the trap-face frame. "rho_c" stays only as the equivalence reference.
+
+## Result (2026-10-20, image 1300767, pod podd-c1, three solves of tests/pod_gates/trap_port_equivalence.py)
+
+PASSED. Equivalence: seat error 8.7e-5 at 20 Hz, err/(ka)^2 flat at ~0.003-0.004 up to ~60 Hz (the predicted
+(ka)^2 law); above ~70 Hz 1-30 % (one point 138 % at 190 Hz), largest at the modes. The face is 1 m tall, so a
+uniform piston and a pointwise rho c face really are different boundaries there; the port is the physical one.
+Energy: the low-eta loss share against the one predicted from the high-eta share (bulk/trap ratio x 0.1):
+median 0.96, 53 of 73 within 10 %; the misses sit at modes, where the field itself moves with eta. The gate's own
+"median ratio = 10" criterion is only right where the bulk share is small (it read 7.07); the ratio prediction is
+the better test and should replace it when the gate is next touched.
