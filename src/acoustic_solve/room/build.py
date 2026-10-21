@@ -42,8 +42,9 @@ TRAPS (optional, `traps`): active bass traps (the active bass trap project), eac
     or hanging from the ceiling (`level`), its 45-degree face `width_m` wide and `height_m` tall, its other ends rigid;
   - "wall": a face `width_m` x `height_m` flush in the room surface `wall` (x0 | x1 | y0 | y1 | z0 | z1, the cabinet
     behind it, outside the air), centred at `centre_m` (on that surface); a wall's width is horizontal, its height
-    z; the floor's and ceiling's width is x, height y. Its face is cut out of any rho c patch it overlaps, and that
-    patch grows to keep its absorbing area (build.wall_patches): a trap face never takes absorption from the room.
+    z; the floor's and ceiling's width is x, height y. No rho c tile touches a trap (its face, or a prism's
+    footprint), and the surface's other tiles grow to keep its absorbing area (spec.rho_c_tiles): a trap never takes
+    absorption from the room.
 Each face is the physical group "trap:<name>" (acoustic_solve.room.spec.trap_group), of one of two kinds (required,
 no default; PLANS/2026-10-20-trap-velocity-port.md):
   - "velocity_port": the face is a PORT like the sources' (a moving boundary, an ideal-velocity component, the
@@ -73,7 +74,9 @@ and stand the same way relative to the first (spec.the_boxes).
 
 <room.json>: {"name", "dimensions_m": [Lx, Ly, Lz], "sources": [{"name", "size_m", "centre_m", "aim_m", "ports",
 optional "free_field_points_m"}], "seats", "h_far_m", "h_near_m", "absorption": {"bulk_loss_factor": eta,
-"rho_c_patch_fraction": f (0: rigid walls; the absorbing fraction of every surface, its trap faces not counted)},
+"rho_c_patch_fraction": f (0: rigid walls; the absorbing fraction of every surface, its trap faces not counted),
+"rho_c_tile_m": the tiles' pitch, with f > 0 (spec.rho_c_tiles: every surface in equal cells, each a centred rho c
+rectangle; a pitch past a surface's size is one centred patch)},
 "frequencies_hz": [...], optional "traps": [{"name", "face": "velocity_port" | "rho_c", "mount": "corner" | "wall",
 "width_m", "height_m", corner: "corner": [i, j] (0: the x = 0 / y = 0 wall, 1: the far one), "level": "floor" |
 "ceiling"; wall: "wall", "centre_m"; optional "mic_points_m"}], optional "field_planes"}
@@ -93,6 +96,7 @@ from acoustic_solve.room.field import P2Mesh
 from acoustic_solve.room.spec import (DENSITY_KG_PER_M3, FREE_FIELD_BOX_PROBE, FREE_FIELD_SPECS_FILE,
                                       KEPT_NODES_FILE, MESH_FILE, ON_SURFACE_M, POINTS_FILE, SOUND_SPEED_M_PER_S,
                                       SPEC_FILE, SURFACES, checked_sources, checked_traps, embedded_points,
+                                      rho_c_tiles,
                                       field_plane_points,
                                       in_box_frame, seat_points, the_boxes, trap_face_frame, trap_group, trap_points,
                                       wall_face_rectangle, yaw_of)
@@ -219,11 +223,8 @@ def mesh(spec, path):
         fraction = spec["absorption"]["rho_c_patch_fraction"]
         surfaces_in = [(2, surface) for _, surface in patches] + [(2, face) for face, _ in wall_faces.values()]
         if fraction > 0:
-            absorbing = [(2, p) for p in wall_patches(occ, spec["dimensions_m"], fraction, traps)]
-            if wall_faces:
-                absorbing, _ = occ.cut(absorbing, [(2, face) for face, _ in wall_faces.values()],
-                                       removeTool=False)
-            surfaces_in += absorbing
+            surfaces_in += [(2, tile) for tile in wall_tiles(occ, spec["dimensions_m"], fraction,
+                                                             spec["absorption"]["rho_c_tile_m"], traps)]
         air, _ = occ.fragment(air, surfaces_in)
         occ.synchronize()
         volumes = [tag for dim, tag in air if dim == 3]
@@ -325,50 +326,23 @@ def wall_face(occ, trap, dimensions_m):
     return planar_quad(occ, corners), tuple(trap["centre_m"])
 
 
-def patch_scale(surface_u_m, surface_v_m, fraction, holes):
-    """The side scale s of a surface's centred patch (s u x s v) whose area LESS the wall-trap faces inside it is
-    `fraction` of the surface: holes [((u0, u1), (v0, v1))] in the surface's (u, v); bisection (the absorbing area
-    grows monotonically with s). A fraction the surface cannot hold around its traps RAISES."""
-    def absorbing(scale):
-        du, dv = surface_u_m * scale, surface_v_m * scale
-        u0, u1, v0, v1 = (surface_u_m - du) / 2, (surface_u_m + du) / 2, (surface_v_m - dv) / 2, (surface_v_m + dv) / 2
-        covered = sum(max(0.0, min(u1, hu1) - max(u0, hu0)) * max(0.0, min(v1, hv1) - max(v0, hv0))
-                      for (hu0, hu1), (hv0, hv1) in holes)
-        return du * dv - covered
-    wanted = fraction * surface_u_m * surface_v_m
-    if absorbing(1.0) < wanted:
-        raise RuntimeError(f"(╯°□°)╯ a {surface_u_m:g} x {surface_v_m:g} m surface cannot absorb {fraction:g} of its "
-                           f"area around its wall traps")
-    low, high = 0.0, 1.0
-    for _ in range(60):
-        middle = (low + high) / 2
-        low, high = (middle, high) if absorbing(middle) < wanted else (low, middle)
-    return high
-
-
-def wall_patches(occ, dimensions_m, fraction, traps):
-    """A centred rectangle on each of the six surfaces whose area, less the wall-trap faces it holds (they are cut out
-    of it), is `fraction` of the surface: so a trap face never takes absorption from the room."""
-    lx, ly, lz = dimensions_m
-    patches = []
-    for axis, length, (u, v) in ((0, lx, (ly, lz)), (1, ly, (lx, lz)), (2, lz, (lx, ly))):
-        for far, at in ((0, 0.0), (1, length)):
-            holes = []
-            for trap in traps:
-                if trap["mount"] == "wall" and SURFACES[trap["wall"]] == (axis, far):
-                    _, _, spans, _ = wall_face_rectangle(trap, dimensions_m)
-                    holes.append(tuple(spans))
-            s = patch_scale(u, v, fraction, holes)
-            du, dv = u * s, v * s
-            rect = occ.addRectangle((u - du) / 2, (v - dv) / 2, 0, du, dv)
+def wall_tiles(occ, dimensions_m, fraction, tile_m, traps):
+    """The walls' rho c tiles (spec.rho_c_tiles: equal cells, one centred rectangle each, none touching a trap) as
+    gmsh rectangles on the six surfaces."""
+    tiles = []
+    for wall, rectangles in rho_c_tiles(dimensions_m, fraction, tile_m, traps).items():
+        axis, far = SURFACES[wall]
+        at = dimensions_m[axis] if far else 0.0
+        for (u0, u1), (v0, v1) in rectangles:
+            rect = occ.addRectangle(u0, v0, 0, u1 - u0, v1 - v0)
             # the rectangle is made in the xy plane: move its (u, v, normal) to the wall's axes
             if axis == 0:     # x wall: u = y, v = z
                 occ.rotate([(2, rect)], 0, 0, 0, 1, 1, 1, 2 * math.pi / 3)   # x->y, y->z, z->x
             elif axis == 1:   # y wall: u = x, v = z
                 occ.rotate([(2, rect)], 0, 0, 0, 1, 0, 0, math.pi / 2)       # y->z
             occ.translate([(2, rect)], *[at if k == axis else 0.0 for k in range(3)])
-            patches.append(rect)
-    return patches
+            tiles.append(rect)
+    return tiles
 
 
 def kept_nodes(spec, mesh_path, facts):

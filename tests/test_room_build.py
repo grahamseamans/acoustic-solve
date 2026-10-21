@@ -146,7 +146,7 @@ TWO_BOX_ROOM = {**ROOM, "name": "two-boxes-patched",
                 "sources": [ROOM["sources"][0], {**ROOM["sources"][0], "name": "speaker-b", "centre_m": [0.5, 0.4, 0.6],
                                                  "aim_m": [2.0, 0.4],
                                                  "ports": [{"name": "b-front", "face": "front", "shape": "face"}]}],
-                "absorption": {"bulk_loss_factor": 0.01, "rho_c_patch_fraction": 0.25},
+                "absorption": {"bulk_loss_factor": 0.01, "rho_c_patch_fraction": 0.25, "rho_c_tile_m": 0.5},
                 "traps": [{"name": "middle", "face": "velocity_port", "mount": "wall", "wall": "x1",
                            "centre_m": [2.4, 1.0, 0.9], "width_m": 0.4, "height_m": 0.4},
                           {"name": "edge", "face": "velocity_port", "mount": "wall", "wall": "y1",
@@ -154,7 +154,7 @@ TWO_BOX_ROOM = {**ROOM, "name": "two-boxes-patched",
                 "field_planes": [{"name": "ear", "normal_axis": "z", "at_m": 0.6, "step_m": 0.2}]}
 
 
-def test_two_boxes_and_wall_traps_cut_out_of_the_patches_and_a_field_plane_keeps_only_what_is_read():
+def test_two_boxes_and_wall_traps_among_the_rho_c_tiles_and_a_field_plane_keeps_only_what_is_read():
     root = Path(tempfile.mkdtemp(prefix="room-two-boxes-"))
     (root / "room.json").write_text(json.dumps(TWO_BOX_ROOM))
     stage = build.main(root / "stage", root / "room.json")
@@ -162,8 +162,14 @@ def test_two_boxes_and_wall_traps_cut_out_of_the_patches_and_a_field_plane_keeps
     area = facts["area_m2"]
     assert abs(area["trap:middle"] - 0.16) < 1e-9 and abs(area["trap:edge"] - 0.16) < 1e-9, area
     walls_total = 2 * (2.4 * 2.0 + 2.4 * 1.8 + 2.0 * 1.8)
-    # the patches absorb 0.25 of every surface: grown around the trap faces cut out of them (middle wholly, edge partly)
+    # the tiles absorb 0.25 of every surface: none on a trap face or under a prism, the others grown to keep the area
     assert abs(area["patches"] - 0.25 * walls_total) < 1e-6, area["patches"]
+    tiles = spec.rho_c_tiles(TWO_BOX_ROOM["dimensions_m"], 0.25, 0.5, TWO_BOX_ROOM["traps"])
+    keep_outs = spec.surface_keep_outs(TWO_BOX_ROOM["traps"], TWO_BOX_ROOM["dimensions_m"])
+    assert keep_outs["x1"] and keep_outs["y1"] and not keep_outs["x0"], keep_outs
+    for wall, rectangles in tiles.items():
+        for (u0, u1), (v0, v1) in rectangles:
+            assert not any(u0 < hu1 and hu0 < u1 and v0 < hv1 and hv0 < v1 for (hu0, hu1), (hv0, hv1) in keep_outs[wall])
     assert area["b-front"] > 0 and abs(area["box"] - (2 * 6 * 0.09 - 3 * 0.09 - math.pi * 0.05 ** 2)) < 2e-3, area
     assert set(facts["yaw_deg"]) == {"speaker", "speaker-b"}
     project = json.loads((stage / "build" / build.PROJECT_FILE).read_text())["physical_system"]
@@ -178,6 +184,48 @@ def test_two_boxes_and_wall_traps_cut_out_of_the_patches_and_a_field_plane_keeps
     for group in ("front", "b-front", "trap:middle", "trap:edge"):
         triangles = room_mesh.cells_dict["triangle6"][room_mesh.cell_sets_dict[group]["triangle6"]]
         assert all(tuple(np.round(p, 9)) in tree for p in room_mesh.points[np.unique(triangles)]), group
+
+
+def test_rho_c_tiles_give_every_low_mode_the_mean_admittance():
+    """Equal cells: the area average of a mode's cos^2 over the tiles is the surface's (1/2 per in-plane axis with
+    n > 0) for every n < cells along it, exactly; at n = cells it is not (the tiling's limit)."""
+    dimensions = [4.57, 3.66, 2.29]
+    tiles = spec.rho_c_tiles(dimensions, 0.02, 0.6, [])
+    _, (width_axis, height_axis) = spec.surface_axes("z0")
+    nu = math.ceil(dimensions[width_axis] / 0.6)
+    area = sum((u1 - u0) * (v1 - v0) for (u0, u1), (v0, v1) in tiles["z0"])
+    assert abs(area - 0.02 * dimensions[0] * dimensions[1]) < 1e-9
+
+    def mean_cos2(n):
+        # the exact integral of cos^2(n pi u / L) over each tile's u span, area-weighted
+        L = dimensions[width_axis]
+        total = 0.0
+        for (u0, u1), (v0, v1) in tiles["z0"]:
+            k = n * math.pi / L
+            integral = (u1 - u0) / 2 + (math.sin(2 * k * u1) - math.sin(2 * k * u0)) / (4 * k)
+            total += integral * (v1 - v0)
+        return total / area
+    for n in range(1, nu):
+        assert abs(mean_cos2(n) - 0.5) < 1e-3, (n, mean_cos2(n))
+    assert abs(mean_cos2(nu) - 0.5) > 0.3, mean_cos2(nu)
+    # a corner prism keeps the tiles off its footprint on its two walls and the floor; each surface keeps its area
+    prism = {"name": "nook", "face": "velocity_port", "mount": "corner", "corner": [0, 1], "level": "floor",
+             "width_m": 0.6, "height_m": 0.6}
+    keep_outs = spec.surface_keep_outs([prism], dimensions)
+    assert keep_outs["x0"] and keep_outs["y1"] and keep_outs["z0"] and not keep_outs["z1"], keep_outs
+    for wall, rectangles in spec.rho_c_tiles(dimensions, 0.02, 0.6, [prism]).items():
+        _, (width_axis, height_axis) = spec.surface_axes(wall)
+        area = sum((u1 - u0) * (v1 - v0) for (u0, u1), (v0, v1) in rectangles)
+        assert abs(area - 0.02 * dimensions[width_axis] * dimensions[height_axis]) < 1e-9, wall
+        for (u0, u1), (v0, v1) in rectangles:
+            assert not any(u0 < hu1 and hu0 < u1 and v0 < hv1 and hv0 < v1
+                           for (hu0, hu1), (hv0, hv1) in keep_outs[wall]), wall
+    for bad in (0.0, 1.0):
+        try:
+            spec.rho_c_tiles(dimensions, bad, 0.6, [])
+        except RuntimeError:
+            continue
+        raise AssertionError(f"a fraction of {bad} was taken")
 
 
 def test_the_free_field_boxes_are_closed_outward_with_their_ports_and_probes_per_spec():

@@ -109,6 +109,34 @@ def test_the_free_field_is_read_per_probe_at_the_rooms_frequencies_in_the_rooms_
         raise AssertionError("another point order was read")
 
 
+def test_the_modal_decay_rate_is_the_exact_impedance_room_root_for_small_admittance():
+    """modal_decay_rate (first order) against the 3D root of Calafa et al.'s eq. 6 per axis, solved by Newton with
+    gamma = beta K l and K^2 = sum k_axis^2 iterated: within 1 % for beta = 0.01 on axial, tangential and oblique modes."""
+    import cmath
+    dimensions, beta = [4.572, 3.658, 2.286], 0.01
+
+    def axis_root(n, gamma):
+        q = complex(n) if n else cmath.sqrt(2j * gamma) / math.pi     # n = 0: away from the spurious root q = 0
+        for _ in range(100):
+            # eq. 6 as its proof writes it: ((pi q)^2 + gamma^2) sin(pi q) - 2 i gamma (pi q) cos(pi q) = 0
+            x = math.pi * q
+            residual = (x * x + gamma * gamma) * cmath.sin(x) - 2j * gamma * x * cmath.cos(x)
+            slope = math.pi * (2 * x * cmath.sin(x) + (x * x + gamma * gamma) * cmath.cos(x)
+                               - 2j * gamma * (cmath.cos(x) - x * cmath.sin(x)))
+            q -= residual / slope
+        return q
+    for mode in ((1, 0, 0), (0, 1, 0), (1, 1, 0), (0, 0, 1), (1, 1, 1)):
+        k = math.pi * math.sqrt(sum((n / length) ** 2 for n, length in zip(mode, dimensions)))
+        for _ in range(50):
+            k = cmath.sqrt(sum((math.pi * axis_root(n, beta * k * length) / length) ** 2
+                               for n, length in zip(mode, dimensions)))
+        exact = abs(k.imag) * analysis.SOUND_SPEED_M_PER_S
+        first_order = analysis.modal_decay_rate(dimensions, mode, beta)
+        assert abs(first_order / exact - 1) < 0.01, (mode, first_order, exact)
+    assert abs(analysis.modal_t60_s(dimensions, (1, 0, 0),
+                                    analysis.admittance_for_modal_t60(dimensions, (1, 0, 0), 1.5)) - 1.5) < 1e-12
+
+
 def test_a_flat_room_gain_has_no_spread():
     frequencies = np.arange(20.0, 300.0, 1.0)
     bands = analysis.room_gain_band_metrics(frequencies, np.full((len(frequencies), 3), 2.0), 0, [0, 1, 2],

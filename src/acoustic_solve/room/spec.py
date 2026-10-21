@@ -224,6 +224,75 @@ def trap_face_frame(trap, dimensions_m):
     return {"face_centre_m": list(trap["centre_m"]), "normal": normal, "along": along, "up": up}
 
 
+def surface_keep_outs(traps, dimensions_m):
+    """{surface: [((u0, u1), (v0, v1))]}: what a trap covers on each room surface, in the surface's (width, height)
+    axes (surface_axes): a wall trap's face; a corner prism's footprint on its two walls (leg x its z range) and on
+    the floor or the ceiling (the leg x leg square holding its triangle)."""
+    lx, ly, lz = dimensions_m
+    keep_outs = {wall: [] for wall in SURFACES}
+    for trap in traps:
+        if trap["mount"] == "wall":
+            _, _, spans, _ = wall_face_rectangle(trap, dimensions_m)
+            keep_outs[trap["wall"]].append(tuple(spans))
+            continue
+        frame = trap_face_frame(trap, dimensions_m)
+        (cx, cy), (sx, sy), leg, z_range = frame["corner_xy"], frame["into_room_xy"], frame["leg_m"], frame["z_range_m"]
+        x_span = tuple(sorted((cx, cx + sx * leg)))
+        y_span = tuple(sorted((cy, cy + sy * leg)))
+        keep_outs["x0" if cx == 0.0 else "x1"].append((y_span, tuple(z_range)))
+        keep_outs["y0" if cy == 0.0 else "y1"].append((x_span, tuple(z_range)))
+        keep_outs["z0" if trap["level"] == "floor" else "z1"].append((x_span, y_span))
+    return keep_outs
+
+
+RHO_C_TILE_ITERATIONS = 50
+
+
+def rho_c_tiles(dimensions_m, fraction, tile_m, traps):
+    """THE WALLS' rho c TILING: {surface: [((u0, u1), (v0, v1))]}, the absorbing rectangles of every room surface in
+    its (width, height) axes. Each surface is cut into ceil(u / tile_m) x ceil(v / tile_m) equal cells, and each cell
+    holds one centred rectangle, the cell scaled by one s per surface. A rectangle that would touch a trap's keep-out
+    (surface_keep_outs) is left out, and s is set so the surface's rectangles absorb `fraction` of its WHOLE area: a
+    trap never takes absorption from the room.
+
+    Why tiles: N equal cells along an axis put the cells' centres where the area average of cos^2(n pi u / L) over
+    them is exactly the wall's (the discrete orthogonality of cosines on the midpoints) for every n < N, so to first
+    order in the admittance every mode with fewer than N half-waves along each axis of a surface sees the mean
+    admittance `fraction` / (rho c) of that surface, as a uniform wall would (the first-visuals' centred patches
+    damped the modes unevenly). A fraction a surface cannot hold RAISES."""
+    if not 0.0 < fraction < 1.0 or tile_m <= 0.0:
+        raise RuntimeError(f"(╯°□°)╯ rho c tiling: fraction {fraction} (0 < f < 1) and tile {tile_m} m (> 0)")
+    keep_outs = surface_keep_outs(traps, dimensions_m)
+    tiles = {}
+    for wall in SURFACES:
+        _, (width_axis, height_axis) = surface_axes(wall)
+        u, v = dimensions_m[width_axis], dimensions_m[height_axis]
+        nu, nv = math.ceil(u / tile_m - 1e-9), math.ceil(v / tile_m - 1e-9)
+        du, dv = u / nu, v / nv
+        centres = [((i + 0.5) * du, (j + 0.5) * dv) for i in range(nu) for j in range(nv)]
+        scale, kept = math.sqrt(fraction), None
+        for _ in range(RHO_C_TILE_ITERATIONS):
+            half_u, half_v = scale * du / 2, scale * dv / 2
+            now = [(cu, cv) for cu, cv in centres
+                   if not any(cu - half_u < hu1 + ON_SURFACE_M and hu0 - ON_SURFACE_M < cu + half_u
+                              and cv - half_v < hv1 + ON_SURFACE_M and hv0 - ON_SURFACE_M < cv + half_v
+                              for (hu0, hu1), (hv0, hv1) in keep_outs[wall])]
+            if not now:
+                raise RuntimeError(f"(╯°□°)╯ rho c tiling: surface {wall} keeps no tile around its traps")
+            wanted = math.sqrt(fraction * nu * nv / len(now))
+            if wanted >= 1.0:
+                raise RuntimeError(f"(╯°□°)╯ rho c tiling: surface {wall} cannot absorb {fraction:g} of its area in "
+                                   f"{len(now)} of its {nu * nv} cells")
+            if now == kept and abs(wanted - scale) < 1e-12:
+                break
+            scale, kept = max(scale, wanted), now
+        else:
+            raise RuntimeError(f"(╯°□°)╯ rho c tiling: surface {wall} did not settle in {RHO_C_TILE_ITERATIONS} rounds")
+        half_u, half_v = scale * du / 2, scale * dv / 2
+        tiles[wall] = [((cu - half_u, cu + half_u), (cv - half_v, cv + half_v)) for cu, cv in kept]
+    return tiles
+
+
 def trap_points(spec):
     """Every trap's mic points in the room frame: {"<trap>/<mic>": [x, y, z]}, each mic given as [normal, along, up]
     in its trap's face frame (trap_face_frame: origin the face centre)."""

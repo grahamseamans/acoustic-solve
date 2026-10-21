@@ -186,6 +186,31 @@ def analytic_modes(dimensions_m, below_hz, highest_order=11):
     return sorted(modes)
 
 
+T60_DECAY_NEPERS = 3 * math.log(10)   # 60 dB of energy = 6.908 nepers of amplitude: T60 = this / delta
+
+
+def modal_decay_rate(dimensions_m, mode, mean_admittance):
+    """delta (1/s, the amplitude's e-folding rate) of a rigid shoebox's mode (a, b, c) when every surface has the same
+    small real normalised admittance `mean_admittance` (beta: rho c / Z_wall). Calafa et al. 2026, Table 1 group 1
+    (references/README.md): along an axis of length l, both walls beta, gamma = beta k l, the root
+    q = (n + sqrt(n^2 + 8 i gamma / pi^2)) / 2 gives, to first order, k_axis = (pi / l) q with
+    Im(k_axis^2) = 4 beta k / l for n > 0 and 2 beta k / l for n = 0 (k = omega / c); summed over the axes
+    (k^2 = sum k_axis^2, eq. 3) and divided by 2 k: Im k = beta sum_axis (2 if n > 0 else 1) / l, delta = c Im k.
+    T60 = T60_DECAY_NEPERS / delta. The rho c tiles (spec.rho_c_tiles) of fraction f are beta = f for every mode
+    with fewer half-waves along each surface than it has cells."""
+    return SOUND_SPEED_M_PER_S * mean_admittance * sum((2.0 if n > 0 else 1.0) / length
+                                                       for n, length in zip(mode, dimensions_m))
+
+
+def modal_t60_s(dimensions_m, mode, mean_admittance):
+    return T60_DECAY_NEPERS / modal_decay_rate(dimensions_m, mode, mean_admittance)
+
+
+def admittance_for_modal_t60(dimensions_m, mode, t60_s):
+    """The uniform beta that gives `mode` a T60 of t60_s (modal_decay_rate is linear in beta)."""
+    return T60_DECAY_NEPERS / (t60_s * modal_decay_rate(dimensions_m, mode, 1.0))
+
+
 def third_octave_smoothed(frequencies, gain_db):
     """1/3-octave power smoothing along the first axis (frequency); any further axes (points) each on its own."""
     power = 10 ** (gain_db / 10)
