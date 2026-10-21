@@ -112,6 +112,25 @@ def test_run_job_sh_resumes_only_the_frequencies_that_did_not_come_back():
     assert (job / "progress").read_text().split() == ["5", "5"] and log.count("DONE") == 1
 
 
+def test_run_job_sh_reduces_raw_with_blabs_python_when_the_project_keeps_nodes_and_fails_loudly_when_that_fails():
+    """The glue only (acoustic_solve.reduce_nodes is tested on a real mesh in tests/test_room_field.py): a project
+    directory with keep_nodes.npy has its reducer run on raw/ after a complete solve, by the interpreter of blab's
+    shebang; a reducer that fails fails the job and says so."""
+    for reducer, expect_status in (("import sys; open(sys.argv[1] + '/reduced-by', 'w').write(sys.argv[2])", 0),
+                                   ("import sys; sys.exit('broken reducer')", 1)):
+        root, job = a_job_directory()
+        (job / "build").mkdir()
+        (job / "build" / "keep_nodes.npy").write_bytes(b"coordinates")
+        (job / "build" / "reduce_nodes.py").write_text(reducer)
+        done = run_job(root, job, 1000)
+        log = (job / "solve.log").read_text()
+        if expect_status == 0:
+            assert done.returncode == 0 and (job / "raw" / "reduced-by").read_text() == "build/keep_nodes.npy", log
+            assert "DONE" in log
+        else:
+            assert done.returncode != 0 and "reducing raw/ to the kept nodes failed" in log and "DONE" not in log, log
+
+
 if __name__ == "__main__":
     started = time.time()
     for name, test in sorted(globals().items()):

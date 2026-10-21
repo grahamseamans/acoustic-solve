@@ -35,11 +35,12 @@ STAGES = {"port": ("velocity_port", "high"), "rho-c": ("rho_c", "high"), "port-l
 STAGE_PREFIX = "trap-port-gate-"
 ETA = {"high": 1e-2, "low": 1e-3}
 FREQUENCIES_HZ = [20.0 + 2.5 * k for k in range(73)]          # 20 .. 200 Hz
-TRAP = {"name": "corner", "corner": [1, 1], "width_m": 0.5, "height_m": 1.0, "mic_points_m": {"front": [0.1, 0, 0]}}
+TRAP = {"name": "corner", "mount": "corner", "corner": [1, 1], "level": "floor", "width_m": 0.5, "height_m": 1.0,
+        "mic_points_m": {"front": [0.1, 0, 0]}}
 ROOM = {"dimensions_m": [2.4, 2.0, 1.8],
-        "source": {"size_m": [0.3, 0.3, 0.3], "centre_m": [0.5, 1.0, 0.6], "aim_m": [2.0, 1.0],
-                   "ports": [{"name": "front", "face": "front", "shape": "face"}]},
-        "seats_m": {"centre": [1.5, 0.9, 1.0]}, "seat_grid": {"step_m": 0.1, "half_count": 1},
+        "sources": [{"name": "source", "size_m": [0.3, 0.3, 0.3], "centre_m": [0.5, 1.0, 0.6], "aim_m": [2.0, 1.0],
+                     "ports": [{"name": "front", "face": "front", "shape": "face"}]}],
+        "seats": {"centre": {"centre_m": [1.5, 0.9, 1.0], "step_m": [0.1, 0.1, 0.1], "half_count": [1, 1, 0]}},
         "h_far_m": 0.2, "h_near_m": 0.08, "frequencies_hz": FREQUENCIES_HZ}
 SOURCE_PORT = "excitation:front"
 EXPECTED_S, RAM_GB, CPU = 300, 4, 4                          # a tiny room's CPU solve: measured by the first run

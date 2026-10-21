@@ -72,7 +72,7 @@ def a_room_stage(frequencies, nodes, names_and_points, pressure_at_nodes):
 
 def test_a_room_solve_is_read_at_its_seat_points_and_chunks_join_in_frequency_order():
     nodes = np.array([[0, 0, 0], [1, 1, 1], [2, 1, 1], [3, 0, 0.0]])
-    points = {"centre/x+0y+0": [2, 1, 1], "centre/x+1y+0": [1, 1, 1]}
+    points = {"centre/x+0y+0z+0": [2, 1, 1], "centre/x+1y+0z+0": [1, 1, 1]}
     pressure = np.arange(2 * 2 * 4, dtype=complex).reshape(2, 2, 4)
     high = a_room_stage([60.0, 70.0], nodes, points, pressure)
     low = a_room_stage([40.0, 50.0], nodes, points, pressure + 100)
@@ -83,7 +83,7 @@ def test_a_room_solve_is_read_at_its_seat_points_and_chunks_join_in_frequency_or
     assert list(joined.frequencies_hz) == [40.0, 50.0, 60.0, 70.0]
     assert np.array_equal(joined.pressure[:2], (pressure + 100)[:, :, [2, 1]])
     assert seat_point_indices(joined.point_names, "centre") == (0, [0, 1])
-    off = a_room_stage([40.0], nodes, {"centre/x+0y+0": [2, 1, 1.5]}, pressure[:1])
+    off = a_room_stage([40.0], nodes, {"centre/x+0y+0z+0": [2, 1, 1.5]}, pressure[:1])
     try:
         analysis.load_room_solve(off)
     except RuntimeError as error:

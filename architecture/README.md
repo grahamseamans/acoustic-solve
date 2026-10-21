@@ -15,7 +15,7 @@ project" and "the numbers it solved to" is here, once.
      |                   (podd.job_contract, imported from ~/podd)
   (3) THE RESULT         boundary_lab_result.py + weighted_sums.py        raw/ -> numbers, and sums of ports
      |
-  (4) STUDIES' TOOLS     room/ (spec, build, analysis, traps)             a kind of model and its measures
+  (4) STUDIES' TOOLS     room/ (spec, build, analysis, traps, field)      a kind of model and its measures
      |
   (0) LEAVES             canonical_digest.py                              standard library, depends on nothing
 ```
@@ -71,7 +71,9 @@ it imports `pins` (monitoring's run id hashes `pins.ENGINE` and `pins.SOLVER_VER
   box frame), `build` (gmsh + the Boundary Lab project, interior FEM and the box's free field; its JOB via solve_job),
   `analysis` (read a room solve, join chunks, the free field, the modal-sum validation, smoothing, peaks, decay, the
   room-gain band metrics), `traps` (a room whose trap faces are velocity ports: every port's exact face-averaged
-  pressure, the trap mics, the closure of a law over them, the watts each port moves). A study's own mix of ports
+  pressure, the trap mics, the closure of a law over them, the watts each port moves), `field` (the P2 field
+  interpolated anywhere in the air, on the solver's own mesh; a room with field planes keeps on the pod only the nodes
+  its readers need: `reduce_nodes.py`, standalone numpy, shipped in build/ and run by run-job.sh after the solve). A study's own mix of ports
   (cardioid patterns, a crossover) and its own control laws and tables stay in the study's repo; they import these.
 - Every name a room stage's files share between the builder and the readers (seat and trap point names, trap groups,
   sensed quantities, the stage's file names) is spelled once, in `spec`. Anything that is a port -- a source patch or

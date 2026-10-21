@@ -144,6 +144,19 @@ if [ "$output" = raw/.resume ]; then
 fi
 echo "$(done_now) $total" > progress.writing && mv progress.writing progress
 [ $status -eq 0 ] || echo "SOLVE FAILED (blab exited $status)" >> solve.log
+# REDUCED RESULTS: a project directory holding keep_nodes.npy + reduce_nodes.py (acoustic_solve.room.build, a room with
+# field planes) has raw/ cut to those nodes here, before it goes home, with the Python that runs blab (its shebang)
+project_dir=$(dirname "$1")
+if [ $status -eq 0 ] && [ -f "$project_dir/keep_nodes.npy" ]; then
+  blab_python=$(sed -n '1s/^#!//p' "$(command -v blab)")
+  if [ -z "$blab_python" ] || [ ! -f "$project_dir/reduce_nodes.py" ]; then
+    echo "run-job.sh (╯°□°)╯ keep_nodes.npy without reduce_nodes.py, or blab has no python shebang" >> solve.log
+    status=1
+  elif ! $blab_python "$project_dir/reduce_nodes.py" raw "$project_dir/keep_nodes.npy" >> solve.log 2>&1; then
+    echo "run-job.sh (╯°□°)╯ reducing raw/ to the kept nodes failed: the full raw/ comes home" >> solve.log
+    status=1
+  fi
+fi
 end=$(date +%s.%N)
 [ -z "$smi" ] || kill $smi
 python3 -c "print('wall_s %.1f' % ($end - $start))" >> solve.log

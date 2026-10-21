@@ -15,6 +15,7 @@ In the blab venv (gmsh, meshio, numpy, scipy):
 """
 import json
 import math
+import shutil
 import sys
 import tempfile
 import time
@@ -26,9 +27,12 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fake_boundary_lab_results import write_room_result  # noqa: E402
 from test_room_build import ROOM  # noqa: E402
+from acoustic_solve.boundary_lab_result import BoundaryLabResult  # noqa: E402
 from acoustic_solve.room import analysis, build, spec, traps  # noqa: E402
 
 FREQUENCIES_HZ = np.array([40.0, 41.0])
+PORTS = ["excitation:front", "excitation:rear", "excitation:side", "excitation:trap:far", "excitation:trap:top",
+         "excitation:trap:beside", "excitation:trap:roof"]
 BUILT = {}
 
 
@@ -93,23 +97,26 @@ def test_a_solved_stage_is_read_face_averages_mics_and_seats_with_its_nodes_shuf
     mesh = meshio.read(stage / "build" / spec.MESH_FILE)
     shuffled = np.random.default_rng(1).permutation(len(mesh.points))
     nodes = mesh.points[shuffled]
-    ports = ["excitation:front", "excitation:rear", "excitation:side", "excitation:trap:far"]
-    scale = np.array([[1.0, -2.0, 0.5j, 3.0 + 1j], [2.0, 1.0, -1j, 0.25]])          # (frequency, port)
+    ports = PORTS
+    scale = np.array([[1.0, -2.0, 0.5j, 3.0 + 1j, 0.5, -1.0, 2j], [2.0, 1.0, -1j, 0.25, 1.5j, 0.75, -0.5]])
     pressure = scale[:, :, None] * quadratic(nodes)[None, None, :]
     write_room_result(stage / "raw", FREQUENCIES_HZ, ports, nodes, pressure)
     trap_room = traps.load_trap_room(stage)
-    assert trap_room.trap_names == ["far"] and trap_room.trap_port_ids == ["excitation:trap:far"]
+    assert trap_room.trap_names == ["far", "top", "beside", "roof"] and trap_room.trap_port_ids == ports[3:]
     assert trap_room.source_port_ids == ports[:3]
-    assert trap_room.sensed_names == ["far/face", "far/front", "far/high"]
+    assert trap_room.sensed_names == ["far/face", "top/face", "beside/face", "roof/face", "far/front", "far/high",
+                                      "beside/front"]
     facts = json.loads((stage / spec.POINTS_FILE).read_text())
     far = far_face_mean(quadratic)
     assert np.allclose(trap_room.face_pressure[:, :, 3], scale * far, rtol=1e-12, atol=0)
     assert np.allclose(trap_room.face_pressure[:, :, 2], scale * side_disc_mean(quadratic), rtol=1e-4, atol=0)
-    mics = quadratic(np.array([facts["trap_points_m"][name] for name in ("far/front", "far/high")]))
-    assert np.allclose(trap_room.sensed, scale[:, :, None] * np.array([far, *mics])[None, None, :], rtol=1e-12)
+    mics = quadratic(np.array([facts["trap_points_m"][name] for name in ("far/front", "far/high", "beside/front")]))
+    faces = [trap_room.face_pressure[0, 0, ports.index(f"excitation:trap:{name}")] / scale[0, 0]
+             for name in ("far", "top", "beside", "roof")]
+    assert np.allclose(trap_room.sensed, scale[:, :, None] * np.array([*faces, *mics])[None, None, :], rtol=1e-12)
     seats = quadratic(np.array(list(facts["seat_points_m"].values())))
     assert np.allclose(trap_room.room.pressure, scale[:, :, None] * seats[None, None, :], rtol=1e-12)
-    assert np.allclose(trap_room.face_area_m2[[0, 3]], [0.09, 0.5], rtol=1e-12)
+    assert np.allclose(trap_room.face_area_m2[[0, 3, 4, 5, 6]], [0.09, 0.5, 0.2, 0.12, 0.06], rtol=1e-12)
 
 
 def toy_trap_room(seat_pressure, face_pressure, sensed, sensed_names, trap_count):
@@ -212,6 +219,31 @@ def test_a_law_naming_what_the_room_does_not_have_is_refused():
             assert words in str(error), error
         else:
             raise AssertionError(f"law {gains} was accepted")
+
+
+def test_chunks_of_one_room_join_in_frequency_order_and_overlapping_chunks_are_refused():
+    stage = built_stage()
+    if not (stage / "raw").exists():
+        test_a_solved_stage_is_read_face_averages_mics_and_seats_with_its_nodes_shuffled()
+    root = Path(tempfile.mkdtemp(prefix="room-trap-chunks-"))
+    nodes = BoundaryLabResult(stage / "raw").domain_coordinate("fem:room", "points_m")
+    chunks = []
+    for name, frequencies, shift in (("high", [60.0, 61.0], 10.0), ("low", [40.0, 41.0], 0.0)):
+        chunk = root / name
+        shutil.copytree(stage, chunk, ignore=shutil.ignore_patterns("raw"))
+        pressure = (shift + np.arange(1.0, 8.0))[None, :, None] * quadratic(nodes)[None, None, :] * np.ones((2, 1, 1))
+        write_room_result(chunk / "raw", np.array(frequencies), PORTS, nodes, pressure)
+        chunks.append(chunk)
+    joined = traps.join_trap_room_chunks(chunks)
+    assert list(joined.room.frequencies_hz) == [40.0, 41.0, 60.0, 61.0]
+    low = traps.load_trap_room(chunks[1])
+    assert np.array_equal(joined.face_pressure[:2], low.face_pressure) and np.array_equal(joined.sensed[:2], low.sensed)
+    try:
+        traps.join_trap_room_chunks([chunks[1], chunks[1]])
+    except RuntimeError as error:
+        assert "overlap" in str(error)
+    else:
+        raise AssertionError("overlapping chunks were joined")
 
 
 if __name__ == "__main__":

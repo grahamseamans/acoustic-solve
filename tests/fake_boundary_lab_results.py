@@ -11,7 +11,7 @@ import numpy as np
 def write_result(directory, frequencies_hz, port_ids, quantities, domains=(), status="complete",
                  phasor_convention="exp(+i omega t)", diagnostics=None):
     """quantities: [{"id", "quantity", "axes", "values": array (frequency, port, ...), "metadata"?}];
-    domains: [{"id", "kind", "metadata"?, "coordinates": {name: array}}]."""
+    domains: [{"id", "kind", "metadata"?, "coordinates": {name: array}, "topology"?: {name: array}}]."""
     directory = Path(directory)
     (directory / "frequencies").mkdir(parents=True)
     domain_arrays, domain_records = {}, []
@@ -20,8 +20,12 @@ def write_result(directory, frequencies_hz, port_ids, quantities, domains=(), st
         for name, array in domain["coordinates"].items():
             keys[name] = f"domain{number}_{name}"
             domain_arrays[keys[name]] = np.asarray(array)
+        topology = {}
+        for name, array in domain.get("topology", {}).items():
+            topology[name] = f"domain{number}_topology_{name}"
+            domain_arrays[topology[name]] = np.asarray(array)
         domain_records.append({"id": domain["id"], "kind": domain["kind"], "metadata": domain.get("metadata", {}),
-                               "coordinates": keys})
+                               "coordinates": keys, "topology": topology})
     np.savez(directory / "domains.npz", **domain_arrays)
     (directory / "domains.json").write_text(json.dumps({"domains": domain_records}))
     results = []
@@ -31,7 +35,9 @@ def write_result(directory, frequencies_hz, port_ids, quantities, domains=(), st
         np.savez(directory / "frequencies" / f"{stem}.npz", **arrays)
         meta = {"freq_hz": float(frequency), "excitation_port_ids": list(port_ids), "arrays_file": f"{stem}.npz",
                 "quantities": [{"id": q["id"], "quantity": q["quantity"], "key": f"q{n}", "axes": q["axes"],
-                                "metadata": q.get("metadata", {})} for n, q in enumerate(quantities)],
+                                "metadata": q.get("metadata", {}), "target_id": q.get("target_id"),
+                                "shape": list(np.asarray(q["values"][index]).shape)}
+                               for n, q in enumerate(quantities)],
                 "diagnostics": {"phasor_convention": phasor_convention, **(diagnostics or {})}}
         (directory / "frequencies" / f"{stem}.json").write_text(json.dumps(meta))
         results.append({"freq_hz": float(frequency), "metadata_file": f"frequencies/{stem}.json",
@@ -46,10 +52,19 @@ def write_result(directory, frequencies_hz, port_ids, quantities, domains=(), st
     return directory
 
 
-def write_room_result(directory, frequencies_hz, port_ids, nodes, pressure_at_nodes):
-    """A room solve's result: one fem_volume domain (its nodes) and the retained fem_nodal_pressure (frequency, port,
-    node)."""
+def write_room_result(directory, frequencies_hz, port_ids, nodes, pressure_at_nodes, tetrahedra10=None):
+    """A room solve's result: one fem_volume domain (its nodes, and its ten-node tetrahedra when given, with Boundary
+    Lab's per-node region_index, corner tetrahedra and per-cell region_index beside them) and the retained
+    fem_nodal_pressure (frequency, port, node)."""
+    domain = {"id": "fem:room", "kind": "fem_volume", "coordinates": {"points_m": nodes},
+              "metadata": {"node_counts": [len(nodes)], "region_ids": ["region:room"]}}
+    if tetrahedra10 is not None:
+        domain["coordinates"]["region_index"] = np.zeros(len(nodes), dtype=np.int32)
+        domain["topology"] = {"tetrahedra": np.asarray(tetrahedra10)[:, :4], "tetrahedra10": tetrahedra10,
+                              "region_index": np.zeros(len(tetrahedra10), dtype=np.int32)}
+        domain["metadata"]["tetra_counts"] = [len(tetrahedra10)]
     return write_result(directory, frequencies_hz, port_ids,
                         [{"id": "acoustic:fem-nodal-pressure", "quantity": "fem_nodal_pressure",
-                          "axes": ["excitation", "fem_node"], "values": pressure_at_nodes}],
-                        domains=[{"id": "fem:room", "kind": "fem_volume", "coordinates": {"points_m": nodes}}])
+                          "axes": ["excitation", "fem_node"], "values": pressure_at_nodes,
+                          "metadata": {"node_counts": [len(nodes)]}, "target_id": "fem:room"}],
+                        domains=[domain])

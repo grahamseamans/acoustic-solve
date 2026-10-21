@@ -142,6 +142,15 @@ class BoundaryLabResult:
                                          f"{coordinate!r} ({sorted(domain['coordinates'])})")
         return self._domain_arrays[domain["coordinates"][coordinate]]
 
+    def domain_topology(self, domain, topology):
+        """One topology array of one domain (a domain dict, or its id): a FEM volume's "tetrahedra10" (cell, 10) node
+        indices into its points_m."""
+        domain = self.domain(domain) if isinstance(domain, str) else domain
+        if topology not in domain.get("topology", {}):
+            raise BoundaryLabResultError(f"(╯°□°)╯ {self.directory}: domain {domain['id']} has no topology "
+                                         f"{topology!r} ({sorted(domain.get('topology', {}))})")
+        return self._domain_arrays[domain["topology"][topology]]
+
     def polar_angles_by_plane(self):
         """{plane: angles in degrees} of every polar_observation domain (Boundary Lab: "horizontal", "vertical")."""
         return {domain["metadata"]["plane"]: np.asarray(self.domain_coordinate(domain, "angle_deg"), dtype=float)

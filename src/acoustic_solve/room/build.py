@@ -1,6 +1,7 @@
-"""A ROOM: a closed shoebox of air with a source box in it, as a Boundary Lab INTERIOR FEM project, staged as a podd
+"""A ROOM: a closed shoebox of air with source boxes in it, as a Boundary Lab INTERIOR FEM project, staged as a podd
 JOB. Its first studies were the speaker project's (not public: PLANS/2026-10-14-room-cardioid-sub.md,
-two pistons on a cube; PLANS/2026-10-15-room-a2-crossover.md, A2's box and its four sources).
+two pistons on a cube; PLANS/2026-10-15-room-a2-crossover.md, A2's box and its four sources); then the active bass
+trap's (PLANS/2026-10-21-rooms-for-the-trap-visuals.md: a stereo pair, corner and wall traps, field planes).
 
     blabrun -m acoustic_solve.room.build <stage dir> <room.json>          (the Boundary Lab venv: gmsh + blab)
     blabrun -m acoustic_solve.room.build freefield <stage dir> <room.json>...
@@ -20,60 +21,81 @@ Why interior FEM and nothing else (cited in monitoring's PLANS/2026-10-14-room-c
   - walls: rigid, plane-wave termination (Z = rho c) and Miki on rigid; no `impedance` role
     (coupled_backend.py:687-712); room loss: the region's bulk_loss_factor (Q ~ 1/eta, docs/Coupled Solver.md);
   - point probes are refused for interior FEM (src/blab/headless.py:270-274), so the seat points are EMBEDDED as
-    mesh nodes and read out of the retained fem_nodal_pressure.
+    mesh nodes and read out of the retained fem_nodal_pressure; anywhere else the field is interpolated
+    (acoustic_solve.room.field).
 
-THE SOURCE BOX (`source`): a rigid rectangular box, `size_m` [depth, width, height], its centre at `centre_m`, yawed
-so its front face (+depth) points at `aim_m` (a horizontal point). Its BOX FRAME: x along the depth (front face at
-+depth/2), y across (left face at +width/2), z up. Each of its `ports` is a patch on one face, its own ideal-velocity
-component and excitation port `excitation:<name>` (1 m/s uniform normal velocity, along the FEM domain's outward
-normal, i.e. INTO the box), so any mix of sources is a post-processing weight (acoustic_solve.weighted_sums,
-acoustic_solve.room.analysis). A port: {"name", "face": front | rear | left | right, "shape": "face" (the whole face) |
-"disc" ("radius_m") | "rect" ("size_m": [h, v]), "at_m": [h, v]} where (h, v) are the face's in-plane coordinates of
-the patch centre: (y, z) on front / rear, (x, z) on left / right. Everything of the box that is no port is rigid.
+THE SOURCE BOXES (`sources`, a list): each a rigid rectangular box named `name`, `size_m` [depth, width, height], its
+centre at `centre_m`, yawed so its front face (+depth) points at `aim_m` (a horizontal point). Its BOX FRAME: x along
+the depth (front face at +depth/2), y across (left face at +width/2), z up. Each of its `ports` is a patch on one
+face, its own ideal-velocity component and excitation port `excitation:<name>` (1 m/s uniform normal velocity, along
+the FEM domain's outward normal, i.e. INTO the box), so any mix of sources is a post-processing weight
+(acoustic_solve.weighted_sums, acoustic_solve.room.analysis). A port: {"name", "face": front | rear | left | right,
+"shape": "face" (the whole face) | "disc" ("radius_m") | "rect" ("size_m": [h, v]), "at_m": [h, v]} where (h, v) are
+the face's in-plane coordinates of the patch centre: (y, z) on front / rear, (x, z) on left / right. Port names are
+unique across the boxes. Everything of every box that is no port is rigid (the group "box").
 
-SEATS (`seats_m`: {seat: [x, y, z]}): each a grid at ear height (a square of (2n+1)^2 points, `seat_grid`) and the
-centre 0.2 m lower and higher, named "<seat>/x+0y+0", "<seat>/z-0.2", ...; every point an embedded mesh node.
+SEATS (`seats`: {seat: {"centre_m", "step_m": [sx, sy, sz], "half_count": [nx, ny, nz]}}): each a box of points
+along the room's axes, named "<seat>/x+1y-1z+0" (the centre "x+0y+0z+0"); every point an embedded mesh node.
 
-TRAPS (optional, `traps`): an active bass trap in a room corner (the active bass trap project): a triangular prism
-standing on the floor in the corner (cut out of the air), its 45-degree face `width_m` wide and `height_m` tall, its
-top rigid, its face the physical group "trap:<name>" (acoustic_solve.room.spec.trap_group), of one of two kinds
-(required, no default; PLANS/2026-10-20-trap-velocity-port.md):
-  - "velocity_port": the face is a PORT like the source's (a moving boundary, an ideal-velocity component, the
+TRAPS (optional, `traps`): active bass traps (the active bass trap project), each `mount`ed (required, no default):
+  - "corner": a triangular prism in the vertical corner `corner` [i, j] (cut out of the air), standing on the floor
+    or hanging from the ceiling (`level`), its 45-degree face `width_m` wide and `height_m` tall, its other ends rigid;
+  - "wall": a face `width_m` x `height_m` flush in the room surface `wall` (x0 | x1 | y0 | y1 | z0 | z1, the cabinet
+    behind it, outside the air), centred at `centre_m` (on that surface); a wall's width is horizontal, its height
+    z; the floor's and ceiling's width is x, height y. Its face is cut out of any rho c patch it overlaps, and that
+    patch grows to keep its absorbing area (build.wall_patches): a trap face never takes absorption from the room.
+Each face is the physical group "trap:<name>" (acoustic_solve.room.spec.trap_group), of one of two kinds (required,
+no default; PLANS/2026-10-20-trap-velocity-port.md):
+  - "velocity_port": the face is a PORT like the sources' (a moving boundary, an ideal-velocity component, the
     excitation port `excitation:trap:<name>`, 1 m/s uniform normal velocity along the FEM domain's outward normal,
     i.e. INTO the trap). The trap's driver is a rigid piston, so ANY trap behaviour is a law closing the ports in
     post-processing (acoustic_solve.room.traps): one solve serves every law.
   - "rho_c": the face is a plane-wave (rho c) termination like the wall patches, an ideal broadband absorber at
     every frequency; it stays only as the velocity port's equivalence reference.
 Its MIC POINTS (optional `mic_points_m`: {mic: [normal, along, up]}) are in its FACE FRAME (spec.trap_face_frame):
-origin the face centre, normal into the room, along = z x normal (to the right of someone in the room facing the
-trap), up = z; each one an embedded mesh node like the seat points, named "<trap>/<mic>", written apart from them
-(seat_points.json's "trap_points_m"). A point (seat or mic) not in the room's air is refused. The mesh is h_near_m at
-the trap faces as at the source box (growing to h_far_m from 0.05 to 0.6 m away).
+origin the face centre, normal into the room; each one an embedded mesh node like the seat points, named
+"<trap>/<mic>", written apart from them (seat_points.json's "trap_points_m"). A point (seat or mic) not in the room's
+air is refused. The mesh is h_near_m at the trap faces as at the source boxes (growing to h_far_m from 0.05 to 0.6 m
+away).
 
-THE FREE FIELD: the room's effect on a source mix is its seat pressure over the SAME box's anechoic pressure at the
-same points, so one exterior BEM of the box alone (every port, rigid elsewhere) is solved with the seat points of
-every room spec given, moved into the box frame, as point probes, one probe per spec named after it; plus the
-source's `free_field_points_m` ({name: [x, y, z]} in the box frame, e.g. an on-axis point), probe "box". A rigid
-yawed translation is all a placement is, so one solve serves every spec of the same box.
+FIELD PLANES (optional `field_planes`: [{"name", "normal_axis", "at_m", "step_m"}], spec.field_plane_points): grids
+the field is read on by interpolation (acoustic_solve.room.field). When given, the pod KEEPS ONLY the nodes the
+readers need -- the tetrahedra holding the planes' points, the embedded points, every port's and trap's face -- so a
+room with many ports comes home small: build/keep_nodes.npy (their coordinates) and build/reduce_nodes.py (run by
+run-job.sh after the solve). Without field planes the whole field comes home.
 
-<room.json>: {"name", "dimensions_m": [Lx, Ly, Lz], "source": {"size_m", "centre_m", "aim_m", "ports",
-optional "free_field_points_m"}, "seats_m", "seat_grid": {"step_m", "half_count"}, "h_far_m", "h_near_m",
-"absorption": {"bulk_loss_factor": eta, "rho_c_patch_fraction": f (0: rigid walls)}, "frequencies_hz": [...],
-optional "traps": [{"name", "face": "velocity_port" | "rho_c", "corner": [i, j] (0: the x = 0 / y = 0 wall, 1: the
-far one), "width_m", "height_m", optional "mic_points_m": {mic: [normal, along, up]}}]}
+THE FREE FIELD: the room's effect on a source mix is its seat pressure over the SAME boxes' anechoic pressure at the
+same points, so one exterior BEM of every box (every port, rigid elsewhere) in the FIRST box's frame is solved with
+the seat points of every room spec given, moved into that frame, as point probes, one probe per spec named after it;
+plus each box's `free_field_points_m` ({name: [x, y, z]} in ITS box frame), probe "box", named "<box>/<point>". A
+rigid yawed translation of the whole set is all a placement is, so one solve serves every spec whose boxes are the same
+and stand the same way relative to the first (spec.the_boxes).
+
+<room.json>: {"name", "dimensions_m": [Lx, Ly, Lz], "sources": [{"name", "size_m", "centre_m", "aim_m", "ports",
+optional "free_field_points_m"}], "seats", "h_far_m", "h_near_m", "absorption": {"bulk_loss_factor": eta,
+"rho_c_patch_fraction": f (0: rigid walls; the absorbing fraction of every surface, its trap faces not counted)},
+"frequencies_hz": [...], optional "traps": [{"name", "face": "velocity_port" | "rho_c", "mount": "corner" | "wall",
+"width_m", "height_m", corner: "corner": [i, j] (0: the x = 0 / y = 0 wall, 1: the far one), "level": "floor" |
+"ceiling"; wall: "wall", "centre_m"; optional "mic_points_m"}], optional "field_planes"}
 """
 import json
 import math
+import shutil
 import sys
 from pathlib import Path
 
 import gmsh
+import meshio
+import numpy as np
 
 from acoustic_solve import solve_job
-from acoustic_solve.room.spec import (DENSITY_KG_PER_M3, FREE_FIELD_BOX_PROBE, FREE_FIELD_SPECS_FILE, MESH_FILE,
-                                      POINTS_FILE, SOUND_SPEED_M_PER_S, SPEC_FILE, checked_traps, embedded_points,
-                                      in_box_frame, seat_points, the_box, trap_face_frame, trap_group, trap_points,
-                                      yaw_of)
+from acoustic_solve.room.field import P2Mesh
+from acoustic_solve.room.spec import (DENSITY_KG_PER_M3, FREE_FIELD_BOX_PROBE, FREE_FIELD_SPECS_FILE,
+                                      KEPT_NODES_FILE, MESH_FILE, ON_SURFACE_M, POINTS_FILE, SOUND_SPEED_M_PER_S,
+                                      SPEC_FILE, SURFACES, checked_sources, checked_traps, embedded_points,
+                                      field_plane_points,
+                                      in_box_frame, seat_points, the_boxes, trap_face_frame, trap_group, trap_points,
+                                      wall_face_rectangle, yaw_of)
 
 PROJECT_FILE = "room.blab.json"
 FREE_FIELD_MESH_FILE = "box.msh"
@@ -81,12 +103,12 @@ FREE_FIELD_PROJECT_FILE = "freefield.blab.json"
 FREE_FIELD_ELEMENT_M = 0.025         # lambda / 27 at 500 Hz
 REQUEST_FILE = "request.json"
 FACES = ("front", "rear", "left", "right")
-ON_SURFACE_M = 1e-6
+REDUCER_SCRIPT = Path(__file__).resolve().parents[1] / "reduce_nodes.py"
 
 
-def port_geometry(source, port):
+def port_geometry(box, port):
     """(face normal axis, sign, the patch's centre in the box frame, its in-plane half-extents, its area)."""
-    depth, width, height = source["size_m"]
+    depth, width, height = box["size_m"]
     axis, sign = {"front": (0, 1.0), "rear": (0, -1.0), "left": (1, 1.0), "right": (1, -1.0)}[port["face"]]
     face_h = width if axis == 0 else depth
     if port["shape"] == "face":
@@ -106,15 +128,15 @@ def port_geometry(source, port):
     return axis, sign, centre, half_h, half_v, area
 
 
-def source_shapes(occ, source):
-    """The box and its port patches at the box frame's origin -> (box volume tag, [(port, surface tag)])."""
-    depth, width, height = source["size_m"]
-    box = occ.addBox(-depth / 2, -width / 2, -height / 2, depth, width, height)
+def source_shapes(occ, box):
+    """A box and its port patches at the box frame's origin -> (box volume tag, [(port, surface tag)])."""
+    depth, width, height = box["size_m"]
+    volume = occ.addBox(-depth / 2, -width / 2, -height / 2, depth, width, height)
     patches = []
-    for port in source["ports"]:
+    for port in box["ports"]:
         if port["face"] not in FACES:
             raise RuntimeError(f"(╯°□°)╯ port {port['name']}: face {port['face']!r} is not one of {FACES}")
-        axis, sign, (cx, cy, cz), half_h, half_v, _ = port_geometry(source, port)
+        axis, sign, (cx, cy, cz), half_h, half_v, _ = port_geometry(box, port)
         normal = [sign, 0.0, 0.0] if axis == 0 else [0.0, sign, 0.0]
         if port["shape"] == "disc":
             surface = occ.addDisk(cx, cy, cz, port["radius_m"], port["radius_m"], zAxis=normal,
@@ -126,19 +148,23 @@ def source_shapes(occ, source):
             else:
                 corners = [(cx - half_h, cy, cz - half_v), (cx + half_h, cy, cz - half_v),
                            (cx + half_h, cy, cz + half_v), (cx - half_h, cy, cz + half_v)]
-            tags = [occ.addPoint(*corner) for corner in corners]
-            lines = [occ.addLine(tags[k], tags[(k + 1) % 4]) for k in range(4)]
-            surface = occ.addPlaneSurface([occ.addCurveLoop(lines)])
+            surface = planar_quad(occ, corners)
         patches.append((port, surface))
-    return box, patches
+    return volume, patches
 
 
-def classify_source_surface(source, point_box_frame, area):
-    """A surface of the box (its centre of mass in the box frame, its area) -> the port it is, or "box". A port is
+def planar_quad(occ, corners):
+    tags = [occ.addPoint(*corner) for corner in corners]
+    lines = [occ.addLine(tags[k], tags[(k + 1) % 4]) for k in range(4)]
+    return occ.addPlaneSurface([occ.addCurveLoop(lines)])
+
+
+def classify_source_surface(box, point_box_frame, area):
+    """A surface of one box (its centre of mass in that box's frame, its area) -> the port it is, or "box". A port is
     told by its centre AND its area: a face with a port cut out of it has the face's centre, not the port's area."""
     found = []
-    for port in source["ports"]:
-        axis, _, centre, half_h, half_v, port_area = port_geometry(source, port)
+    for port in box["ports"]:
+        axis, _, centre, half_h, half_v, port_area = port_geometry(box, port)
         h_axis = 1 if axis == 0 else 0
         if (abs(point_box_frame[axis] - centre[axis]) < 1e-6
                 and abs(point_box_frame[h_axis] - centre[h_axis]) <= half_h + 1e-6
@@ -150,50 +176,81 @@ def classify_source_surface(source, point_box_frame, area):
     return found[0] if found else "box"
 
 
-def on_box(source, point_box_frame):
-    depth, width, height = source["size_m"]
+def on_box(box, point_box_frame):
+    depth, width, height = box["size_m"]
     x, y, z = point_box_frame
     inside = abs(x) <= depth / 2 + 1e-6 and abs(y) <= width / 2 + 1e-6 and abs(z) <= height / 2 + 1e-6
     return inside and min(abs(abs(x) - depth / 2), abs(abs(y) - width / 2), abs(abs(z) - height / 2)) < 1e-6
 
 
+def surface_of_boxes(boxes, point, area, frame_of):
+    """The group a surface of the boxes is (a port name or "box"); frame_of(box, [point]) puts a point in that box's
+    frame. A surface on no box, or on two, RAISES."""
+    owners = [box for box in boxes if on_box(box, frame_of(box, [point])[0])]
+    if len(owners) != 1:
+        raise RuntimeError(f"(╯°□°)╯ a surface at {point} is on {len(owners)} source boxes")
+    return classify_source_surface(owners[0], frame_of(owners[0], [point])[0], area)
+
+
 def mesh(spec, path):
+    """Mesh the room (gmsh, P2) to path -> the mesh facts (nodes, tetrahedra, group areas, points)."""
     lx, ly, lz = spec["dimensions_m"]
-    source = spec["source"]
-    yaw = yaw_of(source)
+    boxes = checked_sources(spec)
     occ = gmsh.model.occ
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         gmsh.model.add("room")
         room = occ.addBox(0, 0, 0, lx, ly, lz)
-        box, patches = source_shapes(occ, source)
-        moved = [(3, box)] + [(2, surface) for _, surface in patches]
-        occ.rotate(moved, 0, 0, 0, 0, 0, 1, yaw)
-        occ.translate(moved, *source["centre_m"])
-        traps = [(trap, *trap_prism(occ, trap, spec["dimensions_m"])) for trap in checked_traps(spec)]
-        air, _ = occ.cut([(3, room)], [(3, box)] + [(3, prism) for _, prism, _, _ in traps])
+        box_volumes, patches = [], []
+        for box in boxes:
+            volume, box_patches = source_shapes(occ, box)
+            moved = [(3, volume)] + [(2, surface) for _, surface in box_patches]
+            occ.rotate(moved, 0, 0, 0, 0, 0, 1, yaw_of(box))
+            occ.translate(moved, *box["centre_m"])
+            box_volumes.append((3, volume))
+            patches += box_patches
+        traps = checked_traps(spec)
+        prisms = {trap["name"]: trap_prism(occ, trap, spec["dimensions_m"]) for trap in traps
+                  if trap["mount"] == "corner"}
+        wall_faces = {trap["name"]: wall_face(occ, trap, spec["dimensions_m"]) for trap in traps
+                      if trap["mount"] == "wall"}
+        air, _ = occ.cut([(3, room)], box_volumes + [(3, prism) for prism, _, _ in prisms.values()])
         fraction = spec["absorption"]["rho_c_patch_fraction"]
-        surfaces_in = [(2, surface) for _, surface in patches]
+        surfaces_in = [(2, surface) for _, surface in patches] + [(2, face) for face, _ in wall_faces.values()]
         if fraction > 0:
-            surfaces_in += [(2, p) for p in wall_patches(occ, lx, ly, lz, fraction)]
+            absorbing = [(2, p) for p in wall_patches(occ, spec["dimensions_m"], fraction, traps)]
+            if wall_faces:
+                absorbing, _ = occ.cut(absorbing, [(2, face) for face, _ in wall_faces.values()],
+                                       removeTool=False)
+            surfaces_in += absorbing
         air, _ = occ.fragment(air, surfaces_in)
         occ.synchronize()
         volumes = [tag for dim, tag in air if dim == 3]
         if len(volumes) != 1:
             raise RuntimeError(f"the room's air is {len(volumes)} volumes, not one")
         volume = volumes[0]
-        port_names = [port["name"] for port in source["ports"]]
-        trap_groups = [trap_group(trap) for trap, _, _, _ in traps]
+        port_names = [port["name"] for port, _ in patches]
+        trap_groups = [trap_group(trap) for trap in traps]
         groups = {name: [] for name in port_names + ["box", "walls", "patches"] + trap_groups}
+        # the traps' faces (by centre AND area) and the corner prisms' rigid ends (by centre)
+        trap_faces = ([(trap_group(trap), face_centre, trap["width_m"] * trap["height_m"])
+                       for trap in traps if trap["mount"] == "corner"
+                       for _, face_centre, _ in [prisms[trap["name"]]]]
+                      + [(trap_group(trap), centre, trap["width_m"] * trap["height_m"])
+                         for trap in traps if trap["mount"] == "wall" for _, centre in [wall_faces[trap["name"]]]])
+        prism_ends = [end for _, _, end in prisms.values()]
         for _, surface in gmsh.model.getBoundary([(3, volume)], oriented=False):
-            sx, sy, sz = occ.getCenterOfMass(2, surface)
-            trap_face = next((group for trap, _, face_centre, top_centre in traps for group, centre in
-                              ((trap_group(trap), face_centre), ("walls", top_centre))
-                              if math.dist((sx, sy, sz), centre) < 1e-6), None)
-            if trap_face:                                # the trap's face, or its rigid top
-                groups[trap_face].append(surface)
+            com, area = occ.getCenterOfMass(2, surface), occ.getMass(2, surface)
+            trap_face = [group for group, centre, face_area in trap_faces
+                         if math.dist(com, centre) < 1e-6 and abs(area - face_area) < 1e-6 * face_area]
+            if trap_face:
+                groups[trap_face[0]].append(surface)
                 continue
+            if any(math.dist(com, end) < 1e-6 for end in prism_ends):
+                groups["walls"].append(surface)
+                continue
+            sx, sy, sz = com
             on_wall = min(abs(sx), abs(sx - lx), abs(sy), abs(sy - ly), abs(sz), abs(sz - lz)) < ON_SURFACE_M
             if on_wall:
                 xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.getBoundingBox(2, surface)
@@ -201,10 +258,7 @@ def mesh(spec, path):
                             if abs(hi - lo - length) < 1e-6) == 2
                 groups["walls" if whole or fraction == 0 else "patches"].append(surface)
                 continue
-            at = in_box_frame(source, [[sx, sy, sz]])[0]
-            if not on_box(source, at):
-                raise RuntimeError(f"(╯°□°)╯ a boundary surface at {(sx, sy, sz)} is on no wall, trap or the box")
-            groups[classify_source_surface(source, at, occ.getMass(2, surface))].append(surface)
+            groups[surface_of_boxes(boxes, com, area, in_box_frame)].append(surface)
         if fraction > 0 and not groups["patches"]:
             raise RuntimeError("patches were asked for and none was found on the walls")
         for name in port_names + trap_groups:
@@ -239,32 +293,72 @@ def mesh(spec, path):
         gmsh.write(str(path))
         area = {name: sum(occ.getMass(2, s) for s in surfaces) for name, surfaces in groups.items()}
         return {"nodes": len(node_tags), "tetrahedra": tetrahedra, "element_types": [int(t) for t in element_types],
-                "area_m2": area, "yaw_deg": math.degrees(yaw), "seat_points_m": seat_points(spec),
-                "trap_points_m": trap_points(spec)}
+                "area_m2": area, "yaw_deg": {box["name"]: math.degrees(yaw_of(box)) for box in boxes},
+                "seat_points_m": seat_points(spec), "trap_points_m": trap_points(spec)}
     finally:
         gmsh.finalize()
 
 
 def trap_prism(occ, trap, dimensions_m):
-    """The trap's prism (spec.trap_face_frame) -> (volume tag, its face's centre, its top's centre)."""
+    """A corner trap's prism (spec.trap_face_frame) -> (volume tag, its face's centre, its room-side end's centre:
+    the top of a floor prism, the bottom of a ceiling one)."""
     frame = trap_face_frame(trap, dimensions_m)
     (cx, cy), (sx, sy), leg = frame["corner_xy"], frame["into_room_xy"], frame["leg_m"]
+    low, high = frame["z_range_m"]
     corners = [(cx, cy), (cx + sx * leg, cy), (cx, cy + sy * leg)]
-    points = [occ.addPoint(x, y, 0.0) for x, y in corners]
+    points = [occ.addPoint(x, y, low) for x, y in corners]
     lines = [occ.addLine(points[k], points[(k + 1) % 3]) for k in range(3)]
     triangle = occ.addPlaneSurface([occ.addCurveLoop(lines)])
-    height = trap["height_m"]
-    prism = next(tag for dim, tag in occ.extrude([(2, triangle)], 0, 0, height) if dim == 3)
-    top_centre = (cx + sx * leg / 3, cy + sy * leg / 3, height)
-    return prism, tuple(frame["face_centre_m"]), top_centre
+    prism = next(tag for dim, tag in occ.extrude([(2, triangle)], 0, 0, high - low) if dim == 3)
+    end_z = high if trap["level"] == "floor" else low
+    return prism, tuple(frame["face_centre_m"]), (cx + sx * leg / 3, cy + sy * leg / 3, end_z)
 
 
-def wall_patches(occ, lx, ly, lz, fraction):
-    """A centred rectangle covering `fraction` of each of the six surfaces (sides scaled by sqrt(fraction))."""
-    s = math.sqrt(fraction)
+def wall_face(occ, trap, dimensions_m):
+    """A wall trap's face: a rectangle in its room surface -> (surface tag, its centre)."""
+    axis, plane, ((w0, w1), (h0, h1)), (width_axis, height_axis) = wall_face_rectangle(trap, dimensions_m)
+    corners = []
+    for w, h in ((w0, h0), (w1, h0), (w1, h1), (w0, h1)):
+        point = [0.0, 0.0, 0.0]
+        point[axis], point[width_axis], point[height_axis] = plane, w, h
+        corners.append(tuple(point))
+    return planar_quad(occ, corners), tuple(trap["centre_m"])
+
+
+def patch_scale(surface_u_m, surface_v_m, fraction, holes):
+    """The side scale s of a surface's centred patch (s u x s v) whose area LESS the wall-trap faces inside it is
+    `fraction` of the surface: holes [((u0, u1), (v0, v1))] in the surface's (u, v); bisection (the absorbing area
+    grows monotonically with s). A fraction the surface cannot hold around its traps RAISES."""
+    def absorbing(scale):
+        du, dv = surface_u_m * scale, surface_v_m * scale
+        u0, u1, v0, v1 = (surface_u_m - du) / 2, (surface_u_m + du) / 2, (surface_v_m - dv) / 2, (surface_v_m + dv) / 2
+        covered = sum(max(0.0, min(u1, hu1) - max(u0, hu0)) * max(0.0, min(v1, hv1) - max(v0, hv0))
+                      for (hu0, hu1), (hv0, hv1) in holes)
+        return du * dv - covered
+    wanted = fraction * surface_u_m * surface_v_m
+    if absorbing(1.0) < wanted:
+        raise RuntimeError(f"(╯°□°)╯ a {surface_u_m:g} x {surface_v_m:g} m surface cannot absorb {fraction:g} of its "
+                           f"area around its wall traps")
+    low, high = 0.0, 1.0
+    for _ in range(60):
+        middle = (low + high) / 2
+        low, high = (middle, high) if absorbing(middle) < wanted else (low, middle)
+    return high
+
+
+def wall_patches(occ, dimensions_m, fraction, traps):
+    """A centred rectangle on each of the six surfaces whose area, less the wall-trap faces it holds (they are cut out
+    of it), is `fraction` of the surface: so a trap face never takes absorption from the room."""
+    lx, ly, lz = dimensions_m
     patches = []
     for axis, length, (u, v) in ((0, lx, (ly, lz)), (1, ly, (lx, lz)), (2, lz, (lx, ly))):
-        for at in (0.0, length):
+        for far, at in ((0, 0.0), (1, length)):
+            holes = []
+            for trap in traps:
+                if trap["mount"] == "wall" and SURFACES[trap["wall"]] == (axis, far):
+                    _, _, spans, _ = wall_face_rectangle(trap, dimensions_m)
+                    holes.append(tuple(spans))
+            s = patch_scale(u, v, fraction, holes)
             du, dv = u * s, v * s
             rect = occ.addRectangle((u - du) / 2, (v - dv) / 2, 0, du, dv)
             # the rectangle is made in the xy plane: move its (u, v, normal) to the wall's axes
@@ -277,6 +371,25 @@ def wall_patches(occ, lx, ly, lz, fraction):
     return patches
 
 
+def kept_nodes(spec, mesh_path, facts):
+    """The coordinates of the nodes a field-plane stage keeps (the module docstring), (node, 3)."""
+    room_mesh = meshio.read(mesh_path)
+    if set(room_mesh.cells_dict) - {"tetra10", "triangle6", "vertex"} or "tetra10" not in room_mesh.cells_dict:
+        raise RuntimeError(f"(╯°□°)╯ {mesh_path}: cells {sorted(room_mesh.cells_dict)}, not a P2 room mesh")
+    p2 = P2Mesh.from_arrays(room_mesh.points, room_mesh.cells_dict["tetra10"])
+    keep = []
+    for plane in spec["field_planes"]:
+        grid = field_plane_points(spec, plane["name"])
+        keep.append(p2.nodes_of(grid["points_m"][grid["in_air"]]))
+    points = np.array(list(facts["seat_points_m"].values()) + list(facts["trap_points_m"].values()))
+    keep.append(p2.nodes_of(points))
+    faces = [name for name in facts["area_m2"] if facts["area_m2"][name] and name not in ("box", "walls", "patches")]
+    for group in faces:
+        triangles = room_mesh.cells_dict["triangle6"][room_mesh.cell_sets_dict[group]["triangle6"]]
+        keep.append(np.unique(triangles))
+    return room_mesh.points[np.unique(np.concatenate(keep))]
+
+
 def boundary(group, kind, mesh_id, region_id):
     return {"group": {"dimension": 2, "mesh_id": mesh_id, "name": group, "tag": None}, "id": f"boundary:{group}",
             "kind": kind, "name": group, "parameters": {}, "region_id": region_id}
@@ -284,7 +397,7 @@ def boundary(group, kind, mesh_id, region_id):
 
 def velocity_port_parts(groups, mesh_id, region_id):
     """A PORT per physical group: its boundary ("moving"), component (ideal velocity, 1 m/s uniform) and excitation
-    port "excitation:<group>" -- the source's ports and the velocity_port trap faces alike."""
+    port "excitation:<group>" -- the sources' ports and the velocity_port trap faces alike."""
     boundaries = [boundary(group, "moving", mesh_id, region_id) for group in groups]
     components = [{"boundary_ids": [f"boundary:{group}"], "id": f"component:{group}", "kind": "ideal_velocity_source",
                    "name": f"{group} piston", "parameters": {"motion_profile": "uniform",
@@ -295,10 +408,10 @@ def velocity_port_parts(groups, mesh_id, region_id):
     return boundaries, components, ports
 
 
-def source_system_parts(source, mesh_id, region_id):
-    """The source's ports (velocity_port_parts) and the rigid rest of its box."""
-    boundaries, components, ports = velocity_port_parts([port["name"] for port in source["ports"]], mesh_id,
-                                                        region_id)
+def source_system_parts(boxes, mesh_id, region_id):
+    """Every box's ports (velocity_port_parts) and the rigid rest of the boxes."""
+    boundaries, components, ports = velocity_port_parts([port["name"] for box in boxes for port in box["ports"]],
+                                                        mesh_id, region_id)
     return boundaries + [boundary("box", "rigid", mesh_id, region_id)], components, ports
 
 
@@ -316,7 +429,7 @@ def project_document(name, system, mesh_file, frequencies, components):
 
 
 def project(spec, mesh_facts):
-    boundaries, components, ports = source_system_parts(spec["source"], "mesh:room", "region:room")
+    boundaries, components, ports = source_system_parts(checked_sources(spec), "mesh:room", "region:room")
     boundaries = [b for b in boundaries if mesh_facts["area_m2"].get(b["name"])]
     traps = checked_traps(spec)
     trap_boundaries, trap_components, trap_ports = velocity_port_parts(
@@ -346,6 +459,11 @@ def main(stage, spec_path):
     build = stage / "build"
     build.mkdir(parents=True, exist_ok=False)
     facts = mesh(spec, build / MESH_FILE)
+    if spec.get("field_planes"):
+        keep = kept_nodes(spec, build / MESH_FILE, facts)
+        np.save(build / KEPT_NODES_FILE, keep)
+        shutil.copy(REDUCER_SCRIPT, build / REDUCER_SCRIPT.name)
+        facts["kept_nodes"] = len(keep)
     (build / PROJECT_FILE).write_text(json.dumps(project(spec, facts), indent=1))
     (stage / REQUEST_FILE).write_text(json.dumps({"schema_version": 1, "frequencies_hz": spec["frequencies_hz"],
                                                   "retain": ["fem_nodal_pressure"]}, indent=1))
@@ -355,27 +473,58 @@ def main(stage, spec_path):
     return stage
 
 
-def free_field_mesh(source, path):
-    """The box's closed surface with its port patches, triangles, normals out of the body into the air (Boundary
-    Lab's exterior convention; monitoring's model/acoustics/tests/test_bem_orientation.py proves it on a solve), checked
-    triangle by triangle and by the signed volume."""
+def in_first_frame(spec):
+    """frame_of(box, points) for points given in the first box's frame: they are moved to the room (first box's
+    pose), then into that box's frame."""
+    first = checked_sources(spec)[0]
+    yaw, (cx, cy, cz) = yaw_of(first), first["centre_m"]
+    c, s = math.cos(yaw), math.sin(yaw)
+
+    def to_room(points):
+        return [[cx + x * c - y * s, cy + x * s + y * c, cz + z] for x, y, z in points]
+
+    def to_first(points):
+        return in_box_frame(first, points)
+
+    def frame_of(box, points):
+        return in_box_frame(box, to_room(points))
+    return to_room, to_first, frame_of
+
+
+def free_field_mesh(spec, path):
+    """Every box's closed surface with its port patches, in the first box's frame, triangles, normals out of each body
+    into the air (Boundary Lab's exterior convention; monitoring's model/acoustics/tests/test_bem_orientation.py proves
+    it on a solve), checked triangle by triangle and by the signed volume."""
+    boxes = checked_sources(spec)
+    to_room, to_first, frame_of = in_first_frame(spec)
+    first = boxes[0]
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
-        gmsh.model.add("box")
+        gmsh.model.add("boxes")
         occ = gmsh.model.occ
-        box, patches = source_shapes(occ, source)
-        body, _ = occ.fragment([(3, box)], [(2, surface) for _, surface in patches])
+        bodies, centres = [], []
+        for box in boxes:
+            volume, patches = source_shapes(occ, box)
+            moved = [(3, volume)] + [(2, surface) for _, surface in patches]
+            occ.rotate(moved, 0, 0, 0, 0, 0, 1, yaw_of(box) - yaw_of(first))
+            centre = to_first([box["centre_m"]])[0]
+            occ.translate(moved, *centre)
+            body, _ = occ.fragment([(3, volume)], [(2, surface) for _, surface in patches])
+            bodies += [tag for dim, tag in body if dim == 3]
+            centres.append(centre)
         occ.synchronize()
-        volume = next(tag for dim, tag in body if dim == 3)
-        names = [port["name"] for port in source["ports"]]
+        names = [port["name"] for box in boxes for port in box["ports"]]
         groups = {name: [] for name in names + ["box"]}
-        for _, surface in gmsh.model.getBoundary([(3, volume)], oriented=False):
-            groups[classify_source_surface(source, occ.getCenterOfMass(2, surface), occ.getMass(2, surface))].append(
-                surface)
+        owner = {}
+        for body, centre in zip(bodies, centres):
+            for _, surface in gmsh.model.getBoundary([(3, body)], oriented=False):
+                owner[surface] = centre
+                groups[surface_of_boxes(boxes, occ.getCenterOfMass(2, surface), occ.getMass(2, surface),
+                                        frame_of)].append(surface)
         for name in names:
             if len(groups[name]) != 1:
-                raise RuntimeError(f"(╯°□°)╯ port {name} is {len(groups[name])} surfaces of the box, not one")
+                raise RuntimeError(f"(╯°□°)╯ port {name} is {len(groups[name])} surfaces of the boxes, not one")
         for name, surfaces in groups.items():
             gmsh.model.addPhysicalGroup(2, surfaces, name=name)
         gmsh.option.setNumber("Mesh.MeshSizeMin", FREE_FIELD_ELEMENT_M)
@@ -386,11 +535,11 @@ def free_field_mesh(source, path):
         node_tags, coordinates, _ = gmsh.model.mesh.getNodes()
         where = {int(t): coordinates[3 * i:3 * i + 3] for i, t in enumerate(node_tags)}
         surfaces = [tag for name in groups for tag in groups[name]]
-        for surface in surfaces:                         # a convex box: out of the body = away from its centre
+        for surface in surfaces:                         # a convex box: out of the body = away from its own centre
             _, _, nodes = gmsh.model.mesh.getElements(2, surface)
-            first = [where[int(t)] for t in nodes[0][:3]]
-            normal = cross(sub(first[1], first[0]), sub(first[2], first[0]))
-            centroid = [sum(c[k] for c in first) / 3 for k in range(3)]
+            first_triangle = [where[int(t)] for t in nodes[0][:3]]
+            normal = cross(sub(first_triangle[1], first_triangle[0]), sub(first_triangle[2], first_triangle[0]))
+            centroid = sub([sum(c[k] for c in first_triangle) / 3 for k in range(3)], owner[surface])
             if sum(n * c for n, c in zip(normal, centroid)) < 0:
                 gmsh.model.mesh.reverse([(2, surface)])
         signed_volume, inward = 0.0, 0
@@ -400,12 +549,12 @@ def free_field_mesh(source, path):
             for i in range(0, len(tags), 3):
                 p, q, r = (where[int(t)] for t in tags[i:i + 3])
                 normal = cross(sub(q, p), sub(r, p))
-                centroid = [(p[k] + q[k] + r[k]) / 3 for k in range(3)]
+                centroid = sub([(p[k] + q[k] + r[k]) / 3 for k in range(3)], owner[surface])
                 inward += sum(n * c for n, c in zip(normal, centroid)) <= 0
                 signed_volume += sum(pk * ck for pk, ck in zip(p, cross(q, r))) / 6
-        expected = math.prod(source["size_m"])
+        expected = sum(math.prod(box["size_m"]) for box in boxes)
         if inward or abs(signed_volume - expected) > 1e-6 * expected:
-            raise RuntimeError(f"(╯°□°)╯ the box surface has {inward} inward triangles, signed volume "
+            raise RuntimeError(f"(╯°□°)╯ the boxes' surfaces have {inward} inward triangles, signed volume "
                                f"{signed_volume} against {expected}")
         gmsh.write(str(path))
         triangles = sum(len(t) for t in gmsh.model.mesh.getElements(2)[1])
@@ -423,8 +572,8 @@ def cross(u, v):
     return [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
 
 
-def free_field_project(name, source, frequencies):
-    boundaries, components, ports = source_system_parts(source, "mesh:box", "region:air")
+def free_field_project(name, boxes, frequencies):
+    boundaries, components, ports = source_system_parts(boxes, "mesh:box", "region:air")
     system = {
         "boundaries": boundaries, "components": components, "excitation_ports": ports,
         "id": f"system:freefield-{name}", "interfaces": [],
@@ -440,26 +589,35 @@ def free_field_project(name, source, frequencies):
 def free_field(stage, spec_paths):
     stage = Path(stage)
     specs = [json.loads(Path(p).read_text()) for p in spec_paths]
-    source, frequencies = specs[0]["source"], specs[0]["frequencies_hz"]
+    first, frequencies = specs[0], specs[0]["frequencies_hz"]
     for spec in specs:
-        if the_box(spec["source"]) != the_box(source) or spec["frequencies_hz"] != frequencies:
-            raise RuntimeError(f"(╯°□°)╯ {spec['name']}: another box or frequency grid than {specs[0]['name']}'s")
+        if the_boxes(spec) != the_boxes(first) or spec["frequencies_hz"] != frequencies:
+            raise RuntimeError(f"(╯°□°)╯ {spec['name']}: other boxes (or the same standing otherwise) or another "
+                               f"frequency grid than {first['name']}'s")
     build = stage / "build"
     build.mkdir(parents=True, exist_ok=False)
-    facts = free_field_mesh(source, build / FREE_FIELD_MESH_FILE)
-    (build / FREE_FIELD_PROJECT_FILE).write_text(json.dumps(free_field_project(stage.name, source, frequencies),
+    facts = free_field_mesh(first, build / FREE_FIELD_MESH_FILE)
+    boxes = checked_sources(first)
+    (build / FREE_FIELD_PROJECT_FILE).write_text(json.dumps(free_field_project(stage.name, boxes, frequencies),
                                                             indent=1))
     probes = [{"id": spec["name"], "coordinate_frame": "project",
-               "points_m": in_box_frame(spec["source"], list(seat_points(spec).values()))} for spec in specs]
-    extra = source.get("free_field_points_m") or {}
+               "points_m": in_box_frame(checked_sources(spec)[0], list(seat_points(spec).values()))}
+              for spec in specs]
+    to_room, to_first, _ = in_first_frame(first)
+    extra = {}
+    for box in boxes:
+        yaw, (cx, cy, cz) = yaw_of(box), box["centre_m"]
+        c, s = math.cos(yaw), math.sin(yaw)
+        for point_name, (x, y, z) in (box.get("free_field_points_m") or {}).items():
+            extra[f"{box['name']}/{point_name}"] = to_first([[cx + x * c - y * s, cy + x * s + y * c, cz + z]])[0]
     if extra:
         probes.append({"id": FREE_FIELD_BOX_PROBE, "coordinate_frame": "project", "points_m": list(extra.values())})
     (stage / REQUEST_FILE).write_text(json.dumps({"schema_version": 1, "frequencies_hz": frequencies,
                                                   "probes": probes, "include_project_observations": False},
                                                  indent=1))
     (stage / FREE_FIELD_SPECS_FILE).write_text(json.dumps(
-        {"source": the_box(source), "probes": {**{spec["name"]: list(seat_points(spec)) for spec in specs},
-                                               **({FREE_FIELD_BOX_PROBE: list(extra)} if extra else {})}},
+        {"sources": the_boxes(first), "probes": {**{spec["name"]: list(seat_points(spec)) for spec in specs},
+                                                 **({FREE_FIELD_BOX_PROBE: list(extra)} if extra else {})}},
         indent=1))
     print(json.dumps(facts, indent=1))
     return stage

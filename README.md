@@ -14,7 +14,7 @@ License: GPL-3.0-or-later (`LICENSE`), because it ships patched Boundary Lab and
 | `patches/boundary-lab/`, `patches/beat-engine/` | The local patch series (one copy each), with why they exist. |
 | `venv/` | The blab venv: `build-venv.sh` (the recipe), `requirements.lock` (hash-locked), `lock_from_venv.py` (writes the lock). |
 | `bin/blabrun` | THE way into the blab venv; checks it against the lock first; `--acceptance` also proves the installed `blab` is the pin + patches. |
-| `src/acoustic_solve/` | The package: `pins`, `canonical_digest`, `weighted_sums`, `boundary_lab_result`, `solve_job` (+ `run-job.sh`, the pod side), `blab_venv`, `room/` (`spec`, `build`, `analysis`, `traps`). |
+| `src/acoustic_solve/` | The package: `pins`, `canonical_digest`, `weighted_sums`, `boundary_lab_result`, `solve_job` (+ `run-job.sh`, the pod side), `blab_venv`, `reduce_nodes` (shipped to the pod with a room that has field planes), `room/` (`spec`, `build`, `analysis`, `traps`, `field`). |
 | `tests/` | One file per module; no pod, no solve. `tests/pod_gates/`: checks staged as podd solves, run by hand. |
 | `references/` | What the code cites (`references/README.md`). |
 
@@ -36,7 +36,7 @@ venv/requirements.lock`, review the diff, bump `solver_version` (the image insta
 
     from acoustic_solve import pins, solve_job, weighted_sums, canonical_digest
     from acoustic_solve.boundary_lab_result import BoundaryLabResult
-    from acoustic_solve.room import analysis, traps
+    from acoustic_solve.room import analysis, field, traps
 
     blabrun -m acoustic_solve.room.build <stage> <room.json>               # a room: interior FEM project + seat nodes
     blabrun -m acoustic_solve.room.build freefield <stage> <room.json>...  # the same box alone: exterior BEM

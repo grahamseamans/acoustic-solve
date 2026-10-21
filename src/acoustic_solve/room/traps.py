@@ -179,6 +179,31 @@ def load_trap_room(stage):
                     np.array([area for _, area, _ in faces]), face_pressure, names, sensed)
 
 
+def join_trap_room_chunks(stages):
+    """One room solved as frequency chunks (one stage each, the same spec but its frequencies) -> one TrapRoom, sorted
+    by frequency. Chunks that differ in ports, traps, sensed names, seat points or face areas, or overlap in
+    frequency, RAISE."""
+    parts = [load_trap_room(stage) for stage in stages]
+    first = parts[0]
+    for part in parts:
+        if (part.room.port_ids != first.room.port_ids or part.room.point_names != first.room.point_names
+                or part.trap_names != first.trap_names or part.sensed_names != first.sensed_names
+                or not np.allclose(part.face_area_m2, first.face_area_m2, rtol=1e-9)):
+            raise RuntimeError("(╯°□°)╯ the chunks of one room differ in ports, traps, sensed names, seats or faces")
+    frequencies = np.concatenate([part.room.frequencies_hz for part in parts])
+    order = np.argsort(frequencies)
+    if np.any(np.diff(frequencies[order]) <= 0):
+        raise RuntimeError("(╯°□°)╯ the chunks of one room overlap in frequency")
+
+    def joined(name):
+        return np.concatenate([getattr(part, name) for part in parts])[order]
+    room = analysis.RoomSolve(frequencies[order], first.room.port_ids, first.room.point_names, first.room.points_m,
+                              np.concatenate([part.room.pressure for part in parts])[order],
+                              [d for part in parts for d in part.room.diagnostics])
+    return TrapRoom(room, first.source_port_ids, first.trap_names, first.trap_port_ids, first.face_area_m2,
+                    joined("face_pressure"), first.sensed_names, joined("sensed"))
+
+
 def per_frequency(value, count, what):
     """A number, or one per frequency -> (count,) complex."""
     array = np.asarray(value, dtype=complex)
