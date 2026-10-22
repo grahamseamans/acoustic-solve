@@ -6,18 +6,21 @@
                           label="room medium-live", threads=4, resumable=True, requires={"gpu": "none"})
 
 The stage is a directory in one of podd's queue directories (podd.job_contract: JOB -> RUNNING -> DONE | FAILED); the
-staged project (its directory, e.g. build/) and the request are already in it. queue_solve copies run-job.sh in and
-writes JOB through podd's own writer, which checks the contract:
+staged project (its directory, e.g. build/) and the request are already in it. queue_solve copies run-job.sh and
+collect_result.py in and writes JOB through podd's own writer, which checks the contract:
 
   command   bash run-job.sh <project> <request> <backend> <threads>  (run-job.sh: the solve, solve.log, gpu.csv,
-            progress, the resume of a raw/ that came back)
-  inputs    the project's top directory, run-job.sh, the request
+            progress, the resume; collect_result.py: raw/ built frequency by frequency, reduced when the project keeps
+            nodes)
+  inputs    the project's top directory, run-job.sh, collect_result.py, the request
   outputs   raw, solve.log, gpu.csv
   requires  image = pins.POD_IMAGE, engine = pins.ENGINE, solver_version = pins.SOLVER_VERSION -- always the pins, so a
             row id that hashes the engine and solver version is pinned before its solve -- plus the client's own
             (`gpu_memory_gb_min` for a card, `gpu: "none"` for a CPU pod)
-  resumable a job that declares it also declares `progress` (run-job.sh writes it either way): podd requeues a stopped
-            one with what came back, and run-job.sh solves only the missing frequencies.
+  resumable a job that declares it also declares `progress` (run-job.sh writes it either way) and `resume_from`
+            raw/manifest.json + solve.log: podd requeues a stopped one, ships it those two files only (the finished
+            frequencies stay home: 2026-10-21 they went back up at ~1 MB/s, 0.2-2.2 GB a job), run-job.sh solves only
+            the missing frequencies, and podd lays the new raw/ over the kept one.
 
 The client owns what it measured about its own solves: resources (cpu, gpu_memory_gb, ram_gb), expected_s, label.
 """
@@ -29,9 +32,11 @@ from podd import job_contract
 from acoustic_solve import pins
 
 RUN_JOB_SCRIPT = Path(__file__).resolve().with_name("run-job.sh")
+COLLECTOR_SCRIPT = Path(__file__).resolve().with_name("collect_result.py")     # run-job.sh runs it from beside itself
 BACKENDS = ("beat_cuda", "beat_cpu")
 SOLVE_OUTPUTS = ("raw", "solve.log", "gpu.csv")
 PROGRESS_FILE = "progress"
+RESUME_FROM = ("raw/manifest.json", "solve.log")    # what a resumed attempt reads: which frequencies are done; its log
 DEFAULT_THREADS = 8                # the image's OPENBLAS_NUM_THREADS: a job that has a whole pod's cores
 RESOURCE_KEYS = {"cpu", "gpu_memory_gb", "ram_gb"}
 PINNED_REQUIREMENTS = ("image", "engine", "solver_version")
@@ -47,7 +52,8 @@ def pinned_requirements():
 
 def queue_solve(stage, project_file, request_file, backend, resources, expected_s, label, threads=DEFAULT_THREADS,
                 resumable=False, requires=None):
-    """Copy run-job.sh into the stage and write its JOB (module docstring). Returns the JOB written."""
+    """Copy run-job.sh and collect_result.py into the stage and write its JOB (module docstring). Returns the JOB
+    written."""
     stage = Path(stage)
     if backend not in BACKENDS:
         raise SolveJobRefused(f"(╯°□°)╯ backend {backend!r} is not one of {BACKENDS}")
@@ -61,13 +67,14 @@ def queue_solve(stage, project_file, request_file, backend, resources, expected_
             raise SolveJobRefused(f"(╯°□°)╯ {stage / staged} is not staged")
     if not isinstance(threads, int) or isinstance(threads, bool) or threads < 1:
         raise SolveJobRefused(f"(╯°□°)╯ threads {threads!r} is not a positive integer")
-    shutil.copy(RUN_JOB_SCRIPT, stage / RUN_JOB_SCRIPT.name)
+    for script in (RUN_JOB_SCRIPT, COLLECTOR_SCRIPT):
+        shutil.copy(script, stage / script.name)
     job = {"command": f"bash {RUN_JOB_SCRIPT.name} {project_file} {request_file} {backend} {threads}",
-           "inputs": [Path(project_file).parts[0], RUN_JOB_SCRIPT.name, request_file],
+           "inputs": [Path(project_file).parts[0], RUN_JOB_SCRIPT.name, COLLECTOR_SCRIPT.name, request_file],
            "outputs": list(SOLVE_OUTPUTS),
            "requires": {**pinned_requirements(), **(requires or {})},
            **resources, "expected_s": expected_s, "label": label}
     if resumable:
-        job.update({"progress": PROGRESS_FILE, "resumable": True})
+        job.update({"progress": PROGRESS_FILE, "resumable": True, "resume_from": list(RESUME_FROM)})
     job_contract.write_job(stage, job)
     return job

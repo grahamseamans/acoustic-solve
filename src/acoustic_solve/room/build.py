@@ -8,9 +8,9 @@ trap's (PLANS/2026-10-21-rooms-for-the-trap-visuals.md: a stereo pair, corner an
     blabrun -m acoustic_solve.room.build submit <stage dir> <expected_s> <ram_gb> <cpu>
         (a CPU-only job through acoustic_solve.solve_job: requires.gpu "none", so podd runs it on a CPU pod; <cpu>
         cores, its Julia/BLAS threads; <expected_s>: its time on a FAST host, podd's deadline is 4x that x the pod's
-        measured slowness. RESUMABLE per frequency: run-job.sh writes `progress` and resumes the raw/ an earlier,
-        stopped attempt brought home, so a chunk stopped on a slow pod or at its deadline is requeued and solves only
-        the rest. The stage must be in one of podd's queue directories.)
+        measured slowness. RESUMABLE per frequency: run-job.sh writes `progress`, and a chunk stopped on a slow pod
+        or at its deadline is requeued with raw/manifest.json only (the finished frequencies stay home) and solves
+        only the rest. The stage must be in one of podd's queue directories.)
 
 Why interior FEM and nothing else (cited in monitoring's PLANS/2026-10-14-room-cardioid-sub.md):
   - a system with bounded regions and no unbounded region IS an interior FEM solve
@@ -62,8 +62,9 @@ away).
 FIELD PLANES (optional `field_planes`: [{"name", "normal_axis", "at_m", "step_m"}], spec.field_plane_points): grids
 the field is read on by interpolation (acoustic_solve.room.field). When given, the pod KEEPS ONLY the nodes the
 readers need -- the tetrahedra holding the planes' points, the embedded points, every port's and trap's face -- so a
-room with many ports comes home small: build/keep_nodes.npy (their coordinates) and build/reduce_nodes.py (run by
-run-job.sh after the solve). Without field planes the whole field comes home.
+room with many ports comes home small: build/keep_nodes.npy (their coordinates; acoustic_solve/collect_result.py,
+shipped with every solve, reduces each frequency on the pod as it lands). Without field planes the whole field comes
+home.
 
 THE FREE FIELD: the room's effect on a source mix is its seat pressure over the SAME boxes' anechoic pressure at the
 same points, so one exterior BEM of every box (every port, rigid elsewhere) in the FIRST box's frame is solved with
@@ -83,7 +84,6 @@ rectangle; a pitch past a surface's size is one centred patch)},
 """
 import json
 import math
-import shutil
 import sys
 from pathlib import Path
 
@@ -107,7 +107,6 @@ FREE_FIELD_PROJECT_FILE = "freefield.blab.json"
 FREE_FIELD_ELEMENT_M = 0.025         # lambda / 27 at 500 Hz
 REQUEST_FILE = "request.json"
 FACES = ("front", "rear", "left", "right")
-REDUCER_SCRIPT = Path(__file__).resolve().parents[1] / "reduce_nodes.py"
 
 
 def port_geometry(box, port):
@@ -436,7 +435,6 @@ def main(stage, spec_path):
     if spec.get("field_planes"):
         keep = kept_nodes(spec, build / MESH_FILE, facts)
         np.save(build / KEPT_NODES_FILE, keep)
-        shutil.copy(REDUCER_SCRIPT, build / REDUCER_SCRIPT.name)
         facts["kept_nodes"] = len(keep)
     (build / PROJECT_FILE).write_text(json.dumps(project(spec, facts), indent=1))
     (stage / REQUEST_FILE).write_text(json.dumps({"schema_version": 1, "frequencies_hz": spec["frequencies_hz"],

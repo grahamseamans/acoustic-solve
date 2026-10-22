@@ -176,7 +176,7 @@ def test_two_boxes_and_wall_traps_among_the_rho_c_tiles_and_a_field_plane_keeps_
     kinds = {boundary["name"]: boundary["kind"] for boundary in project["boundaries"]}
     assert kinds["patches"] == "plane_wave_tube_termination" and kinds["trap:middle"] == "moving", kinds
     kept = np.load(stage / "build" / spec.KEPT_NODES_FILE)
-    assert (stage / "build" / "reduce_nodes.py").is_file() and facts["kept_nodes"] == len(kept) < facts["nodes"]
+    assert facts["kept_nodes"] == len(kept) < facts["nodes"]
     room_mesh = meshio.read(stage / "build" / spec.MESH_FILE)
     tree = {tuple(np.round(p, 9)) for p in kept}
     for name, point in facts["seat_points_m"].items():

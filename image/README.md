@@ -174,9 +174,10 @@ A solve's command is `src/acoustic_solve/run-job.sh` (shipped with each job by a
 project solve ... --backend beat_cuda --julia-threads 8` (or `beat_cpu`), `nvidia-smi` sampled into `gpu.csv`
 (`peak_gpu_mib_whole_card`: every job on the card), the RSS of its own session in `peak_rss_mib`, `DONE` or `SOLVE
 FAILED` in `solve.log`, `progress` (frequencies done of the request's, every second), and a non-zero exit when the
-solve failed. Given a `raw/` that came back from a stopped attempt it RESUMES: folds a stopped `raw/.resume` into
-`raw/`, solves only the missing frequencies into `raw/.resume` and folds them in (one complete blab result, `resumed`
-records in its manifest). The project is made locally first, by the client (monitoring's model/acoustics for a
+solve failed. blab writes into `.solving/`; `collect_result.py` moves each finished frequency into `raw/` as it lands
+(renumbered, reduced to a room's kept nodes). Given `raw/manifest.json` (podd's `resume_from`: a stopped attempt's
+finished frequencies stay home) it RESUMES: solves only the missing frequencies, and podd lays the new `raw/` over the
+kept one (one complete blab result, `resumed` records in its manifest). The project is made locally first, by the client (monitoring's model/acoustics for a
 cabinet, acoustic_solve.room.build for a room).
 
 ### Cycle, measured 2026-10-04 (one pod, RTX 4090, EU-RO-1, image `beat-runpod:latest` from Actions run

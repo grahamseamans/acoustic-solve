@@ -51,8 +51,12 @@ it imports `pins` (monitoring's run id hashes `pins.ENGINE` and `pins.SOLVER_VER
   command, and sets `requires` to the pins (a client adds only its own: `gpu_memory_gb_min`, `gpu: "none"`; naming
   a pinned key is refused). What a client measured about its solves (cpu, card memory, RAM, expected_s) is its own
   argument.
-- `run-job.sh` is the pod side: one `blab project solve`, its logs, `progress`, and the per-frequency resume. It
-  finds julia and blab on PATH (the image puts them there); it knows no client.
+- `run-job.sh` is the pod side: one `blab project solve` into `.solving/` (never an output), its logs, `progress`;
+  `collect_result.py` (standalone, numpy only to reduce, run with blab's own Python) moves each finished frequency
+  into raw/ as it lands, renumbered and reduced, so every file in raw/ is final whatever stops the job. A resumed
+  attempt gets raw/manifest.json and solve.log only (podd `resume_from`: the finished frequencies never go back up)
+  and podd lays its raw/ over the kept one at home. First and resumed attempts are one path. It finds julia and blab
+  on PATH (the image puts them there); it knows no client.
 - Nothing here talks to RunPod, ssh-es to a pod, or reads podd's state beyond `job_contract`.
 
 ## (3) THE RESULT -- one reader, one algebra
@@ -73,7 +77,7 @@ it imports `pins` (monitoring's run id hashes `pins.ENGINE` and `pins.SOLVER_VER
   room-gain band metrics), `traps` (a room whose trap faces are velocity ports: every port's exact face-averaged
   pressure, the trap mics, the closure of a law over them, the watts each port moves), `field` (the P2 field
   interpolated anywhere in the air, on the solver's own mesh; a room with field planes keeps on the pod only the nodes
-  its readers need: `reduce_nodes.py`, standalone numpy, shipped in build/ and run by run-job.sh after the solve). A study's own mix of ports
+  its readers need: build/keep_nodes.npy, applied per frequency on the pod by `collect_result.py`). A study's own mix of ports
   (cardioid patterns, a crossover) and its own control laws and tables stay in the study's repo; they import these.
 - Every name a room stage's files share between the builder and the readers (seat and trap point names, trap groups,
   sensed quantities, the stage's file names) is spelled once, in `spec`. Anything that is a port -- a source patch or

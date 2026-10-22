@@ -1,12 +1,13 @@
-"""acoustic_solve.room.field and acoustic_solve.reduce_nodes -- the field anywhere, checked without a solve, on a real
+"""acoustic_solve.room.field and acoustic_solve.collect_result's reduction -- the field anywhere, checked without a solve, on a real
 gmsh room mesh (tests/test_room_build.py's two-box room with its field plane: seconds):
 
 - P2 interpolation reproduces a quadratic field exactly at random points of the air, on gmsh's node order and on a
   result's own (nodes shuffled, the edge nodes in VTK's order: the edge pairs are read off the mesh);
 - a point outside the air is refused;
-- a fake result of that mesh read on its field plane, then REDUCED to the builder's kept nodes (reduce_nodes, as the
-  pod runs it): the reduced result gives the same plane, the same seats and the same face averages, is marked, and a
-  second reduction leaves it alone; a kept coordinate that is no node is refused.
+- a fake result of that mesh read on its field plane, then COLLECTED frequency by frequency into a reduced raw/ with
+  the builder's kept nodes (collect_result, as the pod runs it): the reduced result gives the same plane, the same
+  seats and the same face averages, is marked, and a second collect leaves it alone; a kept coordinate that is no
+  node is refused.
 In the blab venv (gmsh, meshio, numpy, scipy):
 
     blabrun tests/test_room_field.py
@@ -25,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fake_boundary_lab_results import write_room_result  # noqa: E402
 from test_room_build import TWO_BOX_ROOM  # noqa: E402
 from test_room_traps import quadratic  # noqa: E402
-from acoustic_solve import reduce_nodes  # noqa: E402
+from acoustic_solve import collect_result  # noqa: E402
 from acoustic_solve.boundary_lab_result import BoundaryLabResult  # noqa: E402
 from acoustic_solve.room import build, field, spec, traps  # noqa: E402
 
@@ -96,9 +97,16 @@ def test_a_plane_reads_the_same_before_and_after_the_pod_keeps_only_the_kept_nod
     assert np.allclose(full_plane[:, :, inside], expected, rtol=1e-11) and np.isnan(full_plane[:, :, ~inside]).all()
     full_traps = traps.load_trap_room(stage)
     before = BoundaryLabResult(stage / "raw").domain_coordinate("fem:room", "points_m").shape[0]
-    record = reduce_nodes.reduce(str(stage / "raw"), str(stage / "build" / spec.KEPT_NODES_FILE))
+    solving = stage / ".solving"                                       # what blab wrote, as run-job.sh has it
+    shutil.rmtree(solving, ignore_errors=True)
+    shutil.copytree(stage / "raw", solving)
+    shutil.rmtree(stage / "raw")
+    keep = str(stage / "build" / spec.KEPT_NODES_FILE)
+    manifest = collect_result.finish(str(solving), str(stage / "raw"), keep)
+    record = manifest["reduced_to_kept_nodes"]
+    assert manifest["status"] == "complete" and all(manifest["completion_mask"]), manifest
     assert record["of_nodes"] == before and record["kept_nodes"] < before / 2, record
-    assert reduce_nodes.reduce(str(stage / "raw"), str(stage / "build" / spec.KEPT_NODES_FILE)) == record
+    assert collect_result.finish(str(solving), str(stage / "raw"), keep)["reduced_to_kept_nodes"] == record
     reduced = BoundaryLabResult(stage / "raw")
     assert reduced.domain_coordinate("fem:room", "points_m").shape[0] == record["kept_nodes"]
     assert reduced.domain_topology("fem:room", "tetrahedra10").max() < record["kept_nodes"]
@@ -107,14 +115,12 @@ def test_a_plane_reads_the_same_before_and_after_the_pod_keeps_only_the_kept_nod
     reduced_traps = traps.load_trap_room(stage)
     assert np.allclose(reduced_traps.face_pressure, full_traps.face_pressure, rtol=1e-12)
     assert np.allclose(reduced_traps.room.pressure, full_traps.room.pressure, rtol=1e-12)
-    elsewhere = Path(tempfile.mkdtemp(prefix="room-field-wrong-")) / "raw"
-    shutil.copytree(stage / "raw", elsewhere)
-    manifest = json.loads((elsewhere / "manifest.json").read_text())
-    del manifest["reduced_to_kept_nodes"]
-    (elsewhere / "manifest.json").write_text(json.dumps(manifest))
-    np.save(elsewhere.parent / "wrong.npy", np.array([[9.0, 9.0, 9.0]]))
+    elsewhere = Path(tempfile.mkdtemp(prefix="room-field-wrong-"))
+    shutil.copytree(stage / "build", elsewhere / "build")
+    fake_solved(elsewhere)                                             # a fresh full result as blab wrote it
+    np.save(elsewhere / "wrong.npy", np.array([[9.0, 9.0, 9.0]]))
     try:
-        reduce_nodes.reduce(str(elsewhere), str(elsewhere.parent / "wrong.npy"))
+        collect_result.collect(str(elsewhere / "raw"), str(elsewhere / "collected"), str(elsewhere / "wrong.npy"))
     except SystemExit as stop:
         assert "no node of the result" in str(stop), stop
     else:

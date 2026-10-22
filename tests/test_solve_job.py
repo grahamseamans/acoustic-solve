@@ -25,19 +25,21 @@ def a_stage():
 RESOURCES = {"cpu": 4, "gpu_memory_gb": 0, "ram_gb": 6}
 
 
-def test_a_resumable_cpu_solve_ships_run_job_and_requires_the_pins_and_no_card():
+def test_a_resumable_cpu_solve_ships_run_job_and_the_collector_resumes_from_the_manifest_and_requires_the_pins():
     stage = a_stage()
     job = solve_job.queue_solve(stage, "build/room.blab.json", "request.json", "beat_cpu", RESOURCES, 600, "a room",
                                 threads=4, resumable=True, requires={"gpu": "none"})
     written = json.loads((stage / job_contract.JOB).read_text())
     assert job_contract.stage_state(stage) == job_contract.JOB
     assert written["command"] == "bash run-job.sh build/room.blab.json request.json beat_cpu 4"
-    assert written["inputs"] == ["build", "run-job.sh", "request.json"]
+    assert written["inputs"] == ["build", "run-job.sh", "collect_result.py", "request.json"]
     assert written["outputs"] == ["raw", "solve.log", "gpu.csv"]
     assert written["requires"] == {"image": pins.POD_IMAGE, "engine": pins.ENGINE,
                                    "solver_version": pins.SOLVER_VERSION, "gpu": "none"}
     assert written["progress"] == "progress" and written["resumable"] is True
+    assert written["resume_from"] == ["raw/manifest.json", "solve.log"], "the finished frequencies stay home"
     assert (stage / "run-job.sh").read_bytes() == solve_job.RUN_JOB_SCRIPT.read_bytes()
+    assert (stage / "collect_result.py").read_bytes() == solve_job.COLLECTOR_SCRIPT.read_bytes()
     assert {k: written[k] for k in RESOURCES} == RESOURCES and written["expected_s"] == 600
 
 
@@ -46,7 +48,7 @@ def test_a_card_solve_that_is_not_resumable_declares_no_progress():
     solve_job.queue_solve(stage, "build/room.blab.json", "request.json", "beat_cuda",
                           {"cpu": 2.5, "gpu_memory_gb": 1, "ram_gb": 2.5}, 55, "a row", requires={"gpu_memory_gb_min": 20})
     written = json.loads((stage / job_contract.JOB).read_text())
-    assert "progress" not in written and "resumable" not in written
+    assert "progress" not in written and "resumable" not in written and "resume_from" not in written
     assert written["command"].endswith(" beat_cuda 8") and written["requires"]["gpu_memory_gb_min"] == 20
 
 

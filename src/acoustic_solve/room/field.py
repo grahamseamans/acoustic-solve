@@ -20,7 +20,7 @@ reproduce every quadratic exactly (tests/test_room_field.py proves it on a gmsh 
 
 THE REDUCED RESULT: a stage built with field planes (acoustic_solve.room.build) keeps on the pod only the nodes its
 readers need (the planes' tetrahedra, the embedded points, the port and trap faces: build/keep_nodes.npy,
-acoustic_solve/reduce_nodes.py), so the result's mesh is that sub-mesh; P2Mesh.from_result reads whatever it is.
+acoustic_solve/collect_result.py), so the result's mesh is that sub-mesh; P2Mesh.from_result reads whatever it is.
 """
 import json
 from dataclasses import dataclass
