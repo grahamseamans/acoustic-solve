@@ -23,10 +23,19 @@ License: GPL-3.0-or-later (`LICENSE`), because it ships patched Boundary Lab and
     ln -s ~/acoustic-solve/bin/blabrun ~/.local/bin/blabrun     # blabrun on PATH, for every client
     blabrun --acceptance                                         # the live ~/blab-venv is the lock + the pinned blab
 
-A client imports the package through `blabrun` (it puts `src/` on `PYTHONPATH`; the package reads `pins.toml` and the
-lock from this checkout, so it is never pip-installed). A client that runs in another interpreter (monitoring's
-`tools/uvrun`, build123d) puts `~/acoustic-solve/src` on its own `PYTHONPATH` and imports only the standard-library
-modules (`canonical_digest`, `weighted_sums`, `pins`).
+One way per use (the package reads `pins.toml` and the lock from this checkout, so it is only ever used from here):
+
+- **Solver runs** (anything that needs Boundary Lab): `blabrun`. It runs the locked `~/blab-venv` with `src/` on
+  `PYTHONPATH`; nothing is installed into that venv for this package.
+- **Client tooling** in its own interpreter (monitoring's uv project, build123d): a uv path dependency, editable, so
+  it points at this checkout:
+
+      [tool.uv.sources]
+      acoustic-solve = { path = "../../../acoustic-solve", editable = true }   # relative to the client's pyproject
+
+  It imports only the standard-library modules (`canonical_digest`, `weighted_sums`, `pins`); the solver's packages
+  are not declared here and are not pulled in. The editable build leaves `src/acoustic_solve.egg-info`: gitignored
+  build output, harmless since 304e737 (blabrun's venv check reads only the venv's own site-packages).
 
 A new venv from scratch (never over the live one): `venv/build-venv.sh <new venv dir>`, then point `BLAB_VENV` at it
 or move it into place. After a deliberate change to the venv: `python3 venv/lock_from_venv.py <venv> >

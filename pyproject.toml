@@ -1,6 +1,7 @@
-# acoustic-solve is used from its checkout: bin/blabrun puts src/ on the path (the package reads pins.toml and the
-# lock from the repository root, so a copy installed elsewhere would refuse to load). The project table names it for
-# tools that read it; its dependencies are the blab venv's lock (venv/requirements.lock), not declared here.
+# acoustic-solve is used from its checkout (the package reads pins.toml and the lock from the repository root, so a
+# non-editable copy installed elsewhere would refuse to load): solver runs go through bin/blabrun (src/ on the path
+# of the locked blab venv); client tooling depends on it as a uv path dependency with editable = true. Its
+# dependencies are the blab venv's lock (venv/requirements.lock), not declared here.
 [project]
 name = "acoustic-solve"
 version = "0.1.0"

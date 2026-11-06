@@ -42,8 +42,10 @@ it imports `pins` (monitoring's run id hashes `pins.ENGINE` and `pins.SOLVER_VER
   byte. Nothing is installed into the venv by hand: change the recipe, rebuild, re-lock.
 - KNOWN SEAM (SHORTCUTS.md): the image's venv still resolves its packages at build time instead of installing the
   lock. The next image build closes it.
-- `bin/blabrun` is the only way into the venv; it puts `src/` on the path. The package is never pip-installed: it
-  reads pins.toml and the lock from its own checkout.
+- `bin/blabrun` is the only way into the venv; it puts `src/` on the path, and the package is never installed into
+  the venv. Client tooling outside the venv depends on the checkout as a uv path dependency (`editable = true`);
+  either way the package reads pins.toml and the lock from its own checkout. The editable build's
+  `src/acoustic_solve.egg-info` is gitignored build output, harmless since 304e737.
 
 ## (2) THE SOLVE -- one JOB writer, one pod-side command
 
