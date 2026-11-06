@@ -6,6 +6,8 @@
     pressure = result.quantity("acoustic:pressure:horizontal-polar")          # (frequency, port, ...)
     nodal = result.quantity_of_kind("fem_nodal_pressure", axes=["excitation", "fem_node"])
     summed = result.weighted_sum("acoustic:pressure:horizontal-polar", result.weighted_terms(resolved_terms))
+    probes = result.probes()                     # {probe id: the request's probe}, each checked against its domain
+    at_points = result.quantity(probe_quantity_id("axis-horizontal"))            # (frequency, port, point)
 
 THE FORMAT (Boundary Lab's HeadlessResultWriter, ~/boundary-lab/src/blab/headless.py at the pinned commit; schema
 `boundary-lab-headless-result`): manifest.json -- status, completion_mask, frequencies_hz, excitation_port_ids,
@@ -13,6 +15,13 @@ phasor_convention, project_sha256, engine_runs, results [{freq_hz, metadata_file
 domains.npz (the observation and mesh domains, each {id, kind, coordinates: {name: npz key}, metadata}); per frequency
 frequencies/<index>.json ({freq_hz, excitation_port_ids, quantities [{id, quantity, key, axes, metadata}],
 diagnostics}) + its .npz. Every quantity's first axis is the excitation port.
+
+POINT PROBES (the request's `probes`: [{id, coordinate_frame "project", points_m}], headless.py `_request_probes` /
+`_with_probes`; ~/boundary-lab/docs/advanced/cli-workflow.md "Solve request overlays"): Boundary Lab evaluates them in
+the solve itself, appended to the same exterior-pressure output as its polar rings, and files each as the domain
+`observation:probe:<id>` (kind point_probe, coordinate points_m) with the quantity `acoustic:pressure:probe:<id>`
+(excitation, observation). The request is kept in the result as written (request.json, the manifest's
+`request_file`), so a client's own keys on a probe (what its points mean) come back with it.
 
 What it refuses, loudly: no manifest; a result that is not complete (unless asked for the manifest only); frequencies
 out of order; a frequency whose ports or phasor convention differ from the manifest's; a quantity present at some
@@ -32,6 +41,17 @@ MANIFEST_FILE = "manifest.json"
 COMPLETE = "complete"
 PORT_ID_PREFIX = "excitation:"
 FREQUENCY_MATCH_TOLERANCE_HZ = 1e-6
+PROBE_DOMAIN_PREFIX = "observation:probe:"           # Boundary Lab headless.py _with_probes
+PROBE_QUANTITY_PREFIX = "acoustic:pressure:probe:"
+PROBE_POINT_TOLERANCE_M = 1e-9                       # the request's points and the domain's are the same numbers
+
+
+def probe_domain_id(probe_id):
+    return PROBE_DOMAIN_PREFIX + probe_id
+
+
+def probe_quantity_id(probe_id):
+    return PROBE_QUANTITY_PREFIX + probe_id
 
 
 class BoundaryLabResultError(RuntimeError):
@@ -155,6 +175,31 @@ class BoundaryLabResult:
         """{plane: angles in degrees} of every polar_observation domain (Boundary Lab: "horizontal", "vertical")."""
         return {domain["metadata"]["plane"]: np.asarray(self.domain_coordinate(domain, "angle_deg"), dtype=float)
                 for domain in self.domains_of_kind("polar_observation")}
+
+    @cached_property
+    def request(self):
+        """The solve request as written (request.json, the manifest's `request_file`)."""
+        path = self.directory / self.manifest.get("request_file", "request.json")
+        if not path.is_file():
+            raise BoundaryLabResultError(f"(╯°□°)╯ {path}: no request in the result")
+        return json.loads(path.read_text())
+
+    def probes(self):
+        """{probe id: the request's probe, as written} of every point probe the request asked for; each one's domain
+        must be in the result with the request's points, or it RAISES. {} for a request without probes."""
+        probes = {}
+        for probe in self.request.get("probes") or []:
+            domain = self.domain(probe_domain_id(probe["id"]))
+            if domain.get("kind") != "point_probe":
+                raise BoundaryLabResultError(f"(╯°□°)╯ {self.directory}: probe {probe['id']!r}'s domain is a "
+                                             f"{domain.get('kind')!r}, not a point_probe")
+            asked = np.asarray(probe["points_m"], dtype=float)
+            filed = np.asarray(self.domain_coordinate(domain, "points_m"), dtype=float)
+            if asked.shape != filed.shape or np.abs(asked - filed).max() > PROBE_POINT_TOLERANCE_M:
+                raise BoundaryLabResultError(f"(╯°□°)╯ {self.directory}: probe {probe['id']!r}: the result's points "
+                                             f"{filed.shape} are not the request's {asked.shape}")
+            probes[probe["id"]] = probe
+        return probes
 
     def radiator_effective_area_by_component(self):
         """{component id: effective area m^2} of the "components:radiators" domain; {} when the result has none."""

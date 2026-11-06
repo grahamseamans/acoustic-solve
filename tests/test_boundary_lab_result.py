@@ -16,7 +16,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fake_boundary_lab_results import write_result  # noqa: E402
 from acoustic_solve import weighted_sums  # noqa: E402
-from acoustic_solve.boundary_lab_result import BoundaryLabResult, BoundaryLabResultError  # noqa: E402
+from acoustic_solve.boundary_lab_result import (BoundaryLabResult, BoundaryLabResultError,  # noqa: E402
+                                                probe_domain_id, probe_quantity_id)
 
 FREQUENCIES = [50.0, 100.0, 200.0]
 PORTS = ["excitation:woofer", "excitation:rear_woofer"]
@@ -120,6 +121,29 @@ def test_a_transducer_port_gives_its_velocity_current_and_reference_volts_and_a_
     v, i, volts = result.transducer_of_port(0)
     assert list(v) == [1 + 1j, 2, 3j] and volts == 2.83
     assert result.transducer_of_port(1) is None
+
+
+
+def a_probed_result(filed_points, asked_points):
+    values = RNG.normal(size=(3, 2, len(filed_points))) + 0j
+    probe = {"id": "ring", "coordinate_frame": "project", "points_m": asked_points, "plane": "horizontal"}
+    return a_result(
+        quantities=[{"id": probe_quantity_id("ring"), "quantity": "exterior_pressure",
+                     "axes": ["excitation", "observation"], "values": values, "target_id": probe_domain_id("ring")}],
+        domains=[{"id": probe_domain_id("ring"), "kind": "point_probe", "metadata": {"probe_id": "ring"},
+                  "coordinates": {"points_m": np.asarray(filed_points, dtype=float)}}],
+        request={"schema_version": 1, "frequencies_hz": FREQUENCIES, "probes": [probe]}), values
+
+
+def test_a_probe_comes_back_as_the_request_wrote_it_with_its_pressure_and_a_moved_point_is_refused():
+    points = [[0.0, 0.0, 2.0], [0.1, 0.2, 1.9]]
+    directory, values = a_probed_result(points, points)
+    result = BoundaryLabResult(directory)
+    assert result.probes()["ring"]["plane"] == "horizontal"            # a client's own key survives
+    assert np.array_equal(result.quantity(probe_quantity_id("ring")), values)
+    moved, _ = a_probed_result(points, [[0.0, 0.0, 2.0], [0.1, 0.2, 1.8]])
+    raises(BoundaryLabResult(moved).probes, "ring", "not the request's")
+    assert BoundaryLabResult(a_result()).probes() == {}
 
 
 if __name__ == "__main__":

@@ -9,9 +9,10 @@ import numpy as np
 
 
 def write_result(directory, frequencies_hz, port_ids, quantities, domains=(), status="complete",
-                 phasor_convention="exp(+i omega t)", diagnostics=None):
+                 phasor_convention="exp(+i omega t)", diagnostics=None, request=None):
     """quantities: [{"id", "quantity", "axes", "values": array (frequency, port, ...), "metadata"?}];
-    domains: [{"id", "kind", "metadata"?, "coordinates": {name: array}, "topology"?: {name: array}}]."""
+    domains: [{"id", "kind", "metadata"?, "coordinates": {name: array}, "topology"?: {name: array}}];
+    request: the solve request blab keeps as request.json (default: the frequencies only)."""
     directory = Path(directory)
     (directory / "frequencies").mkdir(parents=True)
     domain_arrays, domain_records = {}, []
@@ -47,7 +48,9 @@ def write_result(directory, frequencies_hz, port_ids, quantities, domains=(), st
                 [True] + [False] * (len(frequencies_hz) - 1),
                 "frequencies_hz": [float(f) for f in frequencies_hz], "excitation_port_ids": list(port_ids),
                 "phasor_convention": phasor_convention, "project_sha256": "p" * 64, "results": results,
-                "domains_metadata_file": "domains.json", "domains_file": "domains.npz"}
+                "domains_metadata_file": "domains.json", "domains_file": "domains.npz", "request_file": "request.json"}
+    (directory / "request.json").write_text(json.dumps(
+        request if request is not None else {"schema_version": 1, "frequencies_hz": [float(f) for f in frequencies_hz]}))
     (directory / "manifest.json").write_text(json.dumps(manifest))
     return directory
 
