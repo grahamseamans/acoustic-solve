@@ -3,7 +3,7 @@
     python -m acoustic_solve.blab_venv            # fast (every blabrun): the venv IS venv/requirements.lock
     python -m acoustic_solve.blab_venv --deep     # + the installed blab IS boundary_lab_commit + patches/boundary-lab
 
-FAST: Python 3.12; every distribution installed is either locked at exactly its locked version or one of the three
+FAST: Python 3.12; every distribution in the venv's site-packages is either locked at exactly its locked version or one of the three
 installed from source (boundary-lab, podd, pip), and every locked one is installed; beat-engine is pins.ENGINE; gmsh
 is the venv's own pip wheel (not a system python3-gmsh seen through site-packages). DEEP: Boundary Lab at the pinned
 commit, read from a clone's git objects (never its working tree), patched with patches/boundary-lab/*.patch, has
@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -60,7 +61,11 @@ def fast_problems():
     if sys.version_info[:2] != PYTHON:
         problems.append(f"python {sys.version.split()[0]}, the lock is for {'.'.join(map(str, PYTHON))}")
     locked = locked_versions()
-    installed = {normalised(d.metadata["Name"]): d.version for d in importlib.metadata.distributions()}
+    # only the venv's own site-packages: blabrun's PYTHONPATH=src is not the venv, and a uv/setuptools editable build
+    # of this repo (monitoring's uv project, 2026-11-04) leaves src/acoustic_solve.egg-info there
+    venv_site_packages = sorted({sysconfig.get_path("purelib"), sysconfig.get_path("platlib")})
+    installed = {normalised(d.metadata["Name"]): d.version
+                 for d in importlib.metadata.distributions(path=venv_site_packages)}
     for name, version in sorted(locked.items()):
         if installed.get(name) != version:
             problems.append(f"{name}: installed {installed.get(name)}, locked {version}")
